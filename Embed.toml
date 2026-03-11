@@ -1,0 +1,13 @@
+[default.general]
+chip = "nrf52833_xxAA" # uncomment this line for micro:bit V2
+# chip = "nrf51822_xxAA" # uncomment this line for micro:bit V1
+
+[default.reset]
+halt_afterwards = false
+# halt_afterwards = true # set "halt after" to true to get back shell prompt after short timeout
+
+[default.rtt]
+enabled = true
+
+[default.gdb]
+enabled = false

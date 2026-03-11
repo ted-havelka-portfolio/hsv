@@ -1,0 +1,25 @@
+[package]
+name = "a5-hsv"
+version = "0.1.0"
+authors = ["Theodore Havelka <tedhavelka66@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+cortex-m-rt = "0.7.5"
+embedded-io = "0.6.1"
+heapless = "0.8.0"
+microbit-v2 = "0.15.1"
+panic-rtt-target = "0.2.0"
+rtt-target = "0.6.1"
+embedded-hal = "1.0.0"
+lsm303agr = "1.1.0"
+critical-section-lock-mut = "0.1.2"
+sb-rotary-encoder = "0.1.0"
+
+# TODO [ ] Determine whether micromath needed, we do need some floating point . . .
+[dependencies.micromath]
+version = "2.1.0"
+
+[dependencies.cortex-m]
+version = "0.7.7"
+features = ["inline-asm", "critical-section-single-core"]
