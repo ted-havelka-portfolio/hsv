@@ -89,6 +89,8 @@ const HSV_CLAMP_MAX: usize = 99;
 
 static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
 
+static RGB_DISPLAY_MTX: LockMut<crate::rgbdisplay::RgbDisplay> = LockMut::new();
+
 // Ref https://doc.rust-lang.org/core/sync/atomic/#examples
 // Ref https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -123,9 +125,21 @@ fn TIMER1() {
 fn init() -> ! {
     rtt_init_print!();
 
-    // - STEP - Try to get all the peripherals . . .
+    // Try to get all the peripherals . . .
     let board = Board::take().expect("Couldn't initialize board.");
+
+    // Configure a timer for use with `delay_ms()` function:
     let mut timer = hal::Timer::new(board.TIMER0);
+
+    // HSV-to-RGB logic and tri-color LED control:
+    // TODO [ ] Amend use statements section to shorten reference to `Level`:
+    let blu_edge08 = board.edge.e08.into_push_pull_output(hal::gpio::Level::Low);
+    let grn_edge09 = board.edge.e09.into_push_pull_output(hal::gpio::Level::Low);
+    let red_edge12 = board.edge.e12.into_push_pull_output(hal::gpio::Level::Low);
+
+    let pins = [red_edge12.degrade(), grn_edge09.degrade(), blu_edge08.degrade()];
+    let mut rgb_led = RgbDisplay::new(pins);
+    RGB_DISPLAY_MTX.init(rgb_led);
 
     // Set up timer for RGB pulse width modulation.
     let mut rgb_timer = hal::Timer::new(board.TIMER1);
@@ -134,6 +148,8 @@ fn init() -> ! {
     rgb_timer.start(DEV_RGB_TIME);
     rgb_timer.enable_interrupt();
     RGB_TIMER_MTX.init(rgb_timer);
+
+
 
     // Set up the NVIC to handle interrupts:
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER1) };
@@ -165,17 +181,6 @@ fn init() -> ! {
     let mut hue = HUE.fetch_add(0, AcqRel);
     let mut sat = SAT.fetch_add(0, AcqRel);
     let mut val = VAL.fetch_add(0, AcqRel);
-
-    // HSV-to-RGB logic and tri-color LED control:
-    // TODO [ ] Amend use statements section to shorten reference to `Level`:
-    let blu_edge08 = board.edge.e08.into_push_pull_output(hal::gpio::Level::Low);
-    let grn_edge09 = board.edge.e09.into_push_pull_output(hal::gpio::Level::Low);
-    let red_edge12 = board.edge.e12.into_push_pull_output(hal::gpio::Level::Low);
-
-    let pins = [red_edge12.degrade(), grn_edge09.degrade(), blu_edge08.degrade()];
-
-    // https://github.com/pdx-cs-rust-embedded/hello-rgb/blob/pwm/src/main.rs
-    let mut rgb_led = RgbDisplay::new(pins);
 
     loop {
         // Check user input, namely buttons:
@@ -218,7 +223,9 @@ fn init() -> ! {
                                 hue = HUE.load(Ordering::SeqCst);
                             }
                             // TODO [ ] Refactor LED pin control to timer1 interrupt:
-                            rgb_led.red_led_on();
+                            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+                                rgb_led.red_led_on();
+                            });
                         },
                         ColorAttributes::Sat => {
                             sat = SAT.fetch_add(1, AcqRel);
@@ -242,7 +249,10 @@ fn init() -> ! {
                     match cur_attr {
                         ColorAttributes::Hue => {
                             // TODO [ ] Refactor LED pin control to timer1 interrupt:
-                            rgb_led.red_led_off();
+                            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+                                rgb_led.red_led_off();
+                            });
+
                             hue = HUE.fetch_sub(1, AcqRel);
                             if hue < HSV_CLAMP_MIN {
                                 HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
