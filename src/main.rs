@@ -87,10 +87,7 @@ const HSV_CLAMP_MAX: usize = 99;
 // static GPIOTE_PERIPHERAL: LockMut<gpiote::Gpiote> = LockMut::new();
 // . . . we replace this with timer peripheral.
 
-// - DEV 0310 BEGIN - refactor . . .
 static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
-// - DEV 0310 END -
-// static RGB_DISPLAY_MTX: LockMut<RgbDisplay> = LockMut::new();
 
 // Ref https://doc.rust-lang.org/core/sync/atomic/#examples
 // Ref https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
@@ -118,22 +115,6 @@ fn TIMER1() {
     });
 }
 
-/*
-fn dev_red_led_on() {
-    // - STEP - Set up PWM for red LED:
-    let port0 = hal::gpio::p0::Parts::new(peripherals.P0);
-    let mut edge08 = port0.p0_10.into_push_pull_output(Level::Low);
-    edge08.set_low().unwrap();
-}
-
-fn dev_red_led_off() {
-    // - STEP - Set up PWM for red LED:
-    let port0 = hal::gpio::p0::Parts::new(peripherals.P0);
-    let mut edge08 = port0.p0_10.into_push_pull_output(Level::Low);
-    edge08.set_high().unwrap();
-}
-*/
-
 /// --------------------------------------------------------------------
 /// - SECTION - main routine
 /// --------------------------------------------------------------------
@@ -145,10 +126,6 @@ fn init() -> ! {
     // - STEP - Try to get all the peripherals . . .
     let board = Board::take().expect("Couldn't initialize board.");
     let mut timer = hal::Timer::new(board.TIMER0);
-
-// https://users.rust-lang.org/t/rust-embedded-stm32f303-timer-interrupt-hanging/40323
-
-// https://docs.rust-embedded.org/discovery-mb2/15-interrupts/debouncing.html
 
     // Set up timer for RGB pulse width modulation.
     let mut rgb_timer = hal::Timer::new(board.TIMER1);
@@ -240,6 +217,8 @@ fn init() -> ! {
                                 HUE.store(HSV_CLAMP_MAX, Ordering::SeqCst);
                                 hue = HUE.load(Ordering::SeqCst);
                             }
+                            // TODO [ ] Refactor LED pin control to timer1 interrupt:
+                            rgb_led.red_led_on();
                         },
                         ColorAttributes::Sat => {
                             sat = SAT.fetch_add(1, AcqRel);
@@ -262,8 +241,8 @@ fn init() -> ! {
                     rprintln!("3: CCW");
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            // TODP [ ] Implement an atomic value:
-                            // rgb_timer.start(50_000);
+                            // TODO [ ] Refactor LED pin control to timer1 interrupt:
+                            rgb_led.red_led_off();
                             hue = HUE.fetch_sub(1, AcqRel);
                             if hue < HSV_CLAMP_MIN {
                                 HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);

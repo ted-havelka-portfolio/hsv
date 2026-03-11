@@ -59,27 +59,6 @@ impl RgbDisplay {
         }
     }
 
-    /*
-    pub(crate) fn calc_schedule(&mut self, _hsvui: &Hsvui) {
-        self.rgb_timer.disable_interrupt();
-        self.rgb_timer.start(DEV_RGB_RED_DUTY_MS);
-        self.rgb_timer.reset_event();
-        self.rgb_timer.enable_interrupt();
-    }
-
-    pub(crate) fn take_step(&mut self) {
-        // todo!()
-        self.rgb_timer.disable_interrupt();
-    }
-
-    pub(crate) fn start_timer(&mut self, period: u32) {
-        self.rgb_timer.disable_interrupt();
-        self.rgb_timer.reset_event();
-        self.rgb_timer.start(period);
-        self.rgb_timer.enable_interrupt();
-    }
-    */
-
     pub(crate) fn red_led_off(&mut self) {
         let pin_red = &mut self.rgb_pins[0];
         pin_red.set_high().unwrap();
