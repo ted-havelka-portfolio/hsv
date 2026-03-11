@@ -12,6 +12,7 @@
 // [ ] Factor PWM channel setup to file other than main.rs
 
 use core::sync::atomic::{AtomicUsize, Ordering::AcqRel};
+use core::sync::atomic::Ordering;
 
 use cortex_m_rt::entry;
 use critical_section_lock_mut::LockMut;
@@ -68,10 +69,13 @@ const DEV_RGB_TIME_LONG: u32 = 2000 * 1_000_000 / 1000;
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
 const PULSE_DIVIDER: i32 = 4;
 // Update frequency in Hz, used for velocity calculation
-const UPDATE_FREQUENCY: i32 = 1000;
+const UPDATE_FREQUENCY: i32 = 5;
+
+const HSV_CLAMP_MIN: usize = 1;
+const HSV_CLAMP_MAX: usize = 99;
 
 /// --------------------------------------------------------------------
-/// - SECTION - Mutex declarations -
+/// - SECTION - Muteces and atomics
 /// --------------------------------------------------------------------
 
 // https://docs.rust-embedded.org/discovery-mb2/15-interrupts/index.html
@@ -159,14 +163,9 @@ fn init() -> ! {
     // - DEV 0310 END -
     */
 
-    // Set up the NVIC to handle interrupts.
+    // Set up the NVIC to handle interrupts:
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER1) };
     pac::NVIC::unpend(pac::Interrupt::TIMER1);
-
-    // TODO [ ] Review whether following vars are needed:
-    // Set up some loop related variables to cycle through certain colors:
-    // let mut state = State::LedOff;
-    // let led_intensities_grn = [20, 40, 60, 80, 100, 80, 60, 40, 20, 0];
 
     init_buttons(board.GPIOTE, board.buttons);
 
@@ -174,12 +173,10 @@ fn init() -> ! {
     // attribute, updating this attr on each button press.
     let mut ui = crate::hsvui::Hsvui::new();
 
-    // Create a new instance of an encoder
+    // Create a new instance of an encoder:
     let mut encoder = sb_rotary_encoder::RotaryEncoder::new();
 
-    // Configure two input pins identified by their MB2 edge connector names:
-    // Ref https://docs.rs/microbit-v2/latest/microbit/gpio/index.html
-    // Ref https://docs.rs/microbit-v2/latest/microbit/gpio/type.EDGE00.html
+    // Configure GPIOs for quadrature encoder:
     let mut input_a = board.edge.e00.into_floating_input().degrade();
     let mut input_b = board.edge.e01.into_floating_input().degrade();
 
@@ -244,12 +241,24 @@ fn init() -> ! {
                     match cur_attr {
                         ColorAttributes::Hue => {
                             hue = HUE.fetch_add(1, AcqRel);
+                            if hue > HSV_CLAMP_MAX {
+                                HUE.store(HSV_CLAMP_MAX, Ordering::SeqCst);
+                                hue = HUE.load(Ordering::SeqCst);
+                            }
                         },
                         ColorAttributes::Sat => {
                             sat = SAT.fetch_add(1, AcqRel);
+                            if sat > HSV_CLAMP_MAX {
+                                SAT.store(HSV_CLAMP_MAX, Ordering::SeqCst);
+                                sat = SAT.load(Ordering::SeqCst);
+                            }
                         },
                         ColorAttributes::Val => {
                             val = VAL.fetch_add(1, AcqRel);
+                            if val > HSV_CLAMP_MAX {
+                                VAL.store(HSV_CLAMP_MAX, Ordering::SeqCst);
+                                val = VAL.load(Ordering::SeqCst);
+                            }
                         },
                     }
                 }
@@ -259,12 +268,24 @@ fn init() -> ! {
                     match cur_attr {
                         ColorAttributes::Hue => {
                             hue = HUE.fetch_sub(1, AcqRel);
+                            if hue < HSV_CLAMP_MIN {
+                                HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
+                                hue = HUE.load(Ordering::SeqCst);
+                            }
                         },
                         ColorAttributes::Sat => {
                             sat = SAT.fetch_sub(1, AcqRel);
+                            if sat < HSV_CLAMP_MIN {
+                                SAT.store(HSV_CLAMP_MIN, Ordering::SeqCst);
+                                sat = SAT.load(Ordering::SeqCst);
+                            }
                         },
                         ColorAttributes::Val => {
                             val = VAL.fetch_sub(1, AcqRel);
+                            if val < HSV_CLAMP_MIN {
+                                VAL.store(HSV_CLAMP_MIN, Ordering::SeqCst);
+                                val = VAL.load(Ordering::SeqCst);
+                            }
                         },
                     }
                 }
