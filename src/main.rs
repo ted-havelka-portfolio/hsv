@@ -109,15 +109,26 @@ fn TIMER1() {
     let count = COUNTER.fetch_add(1, AcqRel);
     let hue = HUE.load(Ordering::SeqCst);
     // rprintln!("Timeout event {}", count + 1);
-    rprintln!("Timeout event {}, Hue set to {}", count + 1, hue);
+    // if count % 400 == 0 {
+    //     rprintln!("Timeout event {}, Hue set to {}", count + 1, hue);
+    // }
 
     RGB_TIMER_MTX.with_lock(|timer| {
-        timer.start(DEV_RGB_TIME_LONG);
+        // timer.start(DEV_RGB_TIME_LONG);
+        if count % 2 == 0 {
+            timer.start(hue as u32 * 100);
+        } else {
+            timer.start((100 - hue as u32) * 100);
+        }
         timer.reset_event();
     });
 
     RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-        rgb_led.red_led_off();
+        if count % 2 == 0 {
+            rgb_led.red_led_off();
+        } else {
+            rgb_led.red_led_on();
+        }
     });
 }
 
@@ -142,7 +153,7 @@ fn init() -> ! {
     let red_edge12 = board.edge.e12.into_push_pull_output(hal::gpio::Level::Low);
 
     let pins = [red_edge12.degrade(), grn_edge09.degrade(), blu_edge08.degrade()];
-    let mut rgb_led = RgbDisplay::new(pins);
+    let rgb_led = RgbDisplay::new(pins);
     RGB_DISPLAY_MTX.init(rgb_led);
 
     // Set up timer for RGB pulse width modulation.
@@ -226,10 +237,6 @@ fn init() -> ! {
                                 HUE.store(HSV_CLAMP_MAX, Ordering::SeqCst);
                                 hue = HUE.load(Ordering::SeqCst);
                             }
-                            // TODO [ ] Refactor LED pin control to timer1 interrupt:
-                            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-                                rgb_led.red_led_on();
-                            });
                         },
                         ColorAttributes::Sat => {
                             sat = SAT.fetch_add(1, AcqRel);
@@ -252,11 +259,6 @@ fn init() -> ! {
                     rprintln!("3: CCW");
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            // TODO [ ] Refactor LED pin control to timer1 interrupt:
-                            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-                                rgb_led.red_led_off();
-                            });
-
                             hue = HUE.fetch_sub(1, AcqRel);
                             if hue < HSV_CLAMP_MIN {
                                 HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
