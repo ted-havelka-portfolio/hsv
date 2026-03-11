@@ -7,18 +7,14 @@
 ///   * local vars for red, green and blue duty cycles.
 ///   * functions to turn on and turn off individual LEDs of the RGB LED.
 
-use microbit::pac;
-
 use crate::hal::gpio;
-// use crate::hal::gpio::Pin;
 use crate::hal::gpio::Output;
 use crate::hal::gpio::PushPull;
-use crate::hal::Timer;
+
+use embedded_hal::digital::OutputPin;
 
 // Hue, Saturation, Value attributes and logic:
-// mod hsvui;
-// use crate::hsvui::ColorAttributes;
-use crate::hsvui::Hsvui;
+// use crate::hsvui::Hsvui;
 
 const DEV_RGB_RED_DUTY_MS: u32 = 2 * 1_000_000 / 1000;
 const DEV_RGB_GRN_DUTY_MS: u32 = 5 * 1_000_000 / 1000;
@@ -35,12 +31,13 @@ pub(crate) struct RgbDisplay {
     // R, G, and B pins.
     rgb_pins: [gpio::Pin<Output<PushPull>>; 3],
     // Timer used to reach next tick.
-    rgb_timer: Timer<pac::TIMER1>,
+    // pub rgb_timer: Timer<pac::TIMER1>,
 }
 
 impl RgbDisplay {
 
-    pub(crate) fn new(pins: [gpio::Pin<Output<PushPull>>; 3], timer1: Timer<pac::TIMER1>) -> Self {
+    // pub(crate) fn new(pins: [gpio::Pin<Output<PushPull>>; 3], timer1: Timer<pac::TIMER1>) -> Self {
+    pub(crate) fn new(pins: [gpio::Pin<Output<PushPull>>; 3]) -> Self {
         let tick = 0u32;
         // Schedule may grow to be a 2-d array to hold in one
         // dimension between 0 and 3 leds to turn off.
@@ -52,44 +49,44 @@ impl RgbDisplay {
         let rgb_pins = pins;
 
         // TODO [ ] Consider renaming parameter `timer1` to something more general
-        let rgb_timer = timer1;
+        // let rgb_timer = timer1;
         Self {
             tick,
             schedule,
             next_schedule,
             rgb_pins,
-            rgb_timer,
+            // rgb_timer,
         }
     }
 
-    /// Terminology:
-    ///
-    /// frame: a 10 millisecon period in which R, G, B LEDs realize their
-    ///        respective duty cycles.
-    ///
-    /// step:  time at which one or more LEDs turn off after the start of
-    ///        present frame.
-
-    /// Create frame schedule from present RGB values
-    ///
-    /// 1. Disable TIMER1 interrupt
-    /// 2. Clear any pending interrupts
-    /// 3. Call timer.start(countdown_value) to begin period 
-    /// 4. Iterate over R, G, B vals to find transition periods
-    /// 5. turn on LEDs
-
+    /*
     pub(crate) fn calc_schedule(&mut self, _hsvui: &Hsvui) {
         self.rgb_timer.disable_interrupt();
-        self.rgb_timer.reset_event();
         self.rgb_timer.start(DEV_RGB_RED_DUTY_MS);
+        self.rgb_timer.reset_event();
         self.rgb_timer.enable_interrupt();
     }
-
-    /// Take the next frame update step. Called at startup
-    /// and then from the timer interrupt handler.
 
     pub(crate) fn take_step(&mut self) {
         // todo!()
         self.rgb_timer.disable_interrupt();
+    }
+
+    pub(crate) fn start_timer(&mut self, period: u32) {
+        self.rgb_timer.disable_interrupt();
+        self.rgb_timer.reset_event();
+        self.rgb_timer.start(period);
+        self.rgb_timer.enable_interrupt();
+    }
+    */
+
+    pub(crate) fn red_led_off(&mut self) {
+        let pin_red = &mut self.rgb_pins[0];
+        pin_red.set_high().unwrap();
+    }
+
+    pub(crate) fn red_led_on(&mut self) {
+        let pin_red = &mut self.rgb_pins[0];
+        pin_red.set_low().unwrap();
     }
 }

@@ -27,7 +27,6 @@ use microbit::{
     board::Board,
     display::blocking::Display,
     hal::{
-        // gpio,
         pac::{self, interrupt},
         self,
     },
@@ -89,9 +88,9 @@ const HSV_CLAMP_MAX: usize = 99;
 // . . . we replace this with timer peripheral.
 
 // - DEV 0310 BEGIN - refactor . . .
-// static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
+static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
 // - DEV 0310 END -
-static SHARED_RGBDISPALY: LockMut<RgbDisplay> = LockMut::new();
+// static RGB_DISPLAY_MTX: LockMut<RgbDisplay> = LockMut::new();
 
 // Ref https://doc.rust-lang.org/core/sync/atomic/#examples
 // Ref https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
@@ -109,14 +108,14 @@ static VAL: AtomicUsize = AtomicUsize::new(1);
 #[interrupt]
 fn TIMER1() {
     let count = COUNTER.fetch_add(1, AcqRel);
-    rprintln!("Timeout event {}", count + 1);
+    let hue = HUE.load(Ordering::SeqCst);
+    // rprintln!("Timeout event {}", count + 1);
+    rprintln!("Timeout event {}, Hue set to {}", count + 1, hue);
 
-    /*
     RGB_TIMER_MTX.with_lock(|timer| {
         timer.start(DEV_RGB_TIME_LONG);
         timer.reset_event();
     });
-    */
 }
 
 /*
@@ -155,13 +154,9 @@ fn init() -> ! {
     let mut rgb_timer = hal::Timer::new(board.TIMER1);
     rgb_timer.disable_interrupt();
     rgb_timer.reset_event();
-    /*
-     * - DEV 0310 - refactor these timer references to RGBDisplay module
     rgb_timer.start(DEV_RGB_TIME);
     rgb_timer.enable_interrupt();
     RGB_TIMER_MTX.init(rgb_timer);
-    // - DEV 0310 END -
-    */
 
     // Set up the NVIC to handle interrupts:
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER1) };
@@ -203,7 +198,7 @@ fn init() -> ! {
     let pins = [red_edge12.degrade(), grn_edge09.degrade(), blu_edge08.degrade()];
 
     // https://github.com/pdx-cs-rust-embedded/hello-rgb/blob/pwm/src/main.rs
-    let _rgb_led = RgbDisplay::new(pins, rgb_timer);
+    let mut rgb_led = RgbDisplay::new(pins);
 
     loop {
         // Check user input, namely buttons:
@@ -267,6 +262,8 @@ fn init() -> ! {
                     rprintln!("3: CCW");
                     match cur_attr {
                         ColorAttributes::Hue => {
+                            // TODP [ ] Implement an atomic value:
+                            // rgb_timer.start(50_000);
                             hue = HUE.fetch_sub(1, AcqRel);
                             if hue < HSV_CLAMP_MIN {
                                 HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
@@ -306,6 +303,7 @@ fn init() -> ! {
                 let _step = event.step() + (event.step() * acceleration);
             }
         }
+
 
         timer.delay_ms(10);
     }
