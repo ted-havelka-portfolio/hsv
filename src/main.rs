@@ -115,6 +115,10 @@ fn TIMER1() {
         timer.start(DEV_RGB_TIME_LONG);
         timer.reset_event();
     });
+
+    RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+        rgb_led.red_led_off();
+    });
 }
 
 /// --------------------------------------------------------------------
