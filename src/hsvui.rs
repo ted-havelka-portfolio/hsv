@@ -14,6 +14,16 @@ pub enum ColorAttributes {
     Val,
 }
 
+/*
+#[derive(Clone, Copy, PartialEq)]
+pub enum LedColors{
+    None,
+    Red,
+    Green,
+    Blue,
+}
+*/
+
 // #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[derive(Copy, Clone, PartialEq)]
 struct HsvuiData {
@@ -39,10 +49,6 @@ impl HsvuiData {
     }
 }
 
-// #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-// error[E0277]: the trait bound `HsvuiData: core::cmp::Eq` is not satisfied
-// error[E0277]: the trait bound `HsvuiData: Hash` is not satisfied
-// error[E0277]: the trait bound `HsvuiData: Hash` is not satisfied
 #[derive(Copy, Clone, PartialEq)]
 pub(crate) struct Hsvui {
     hsvui_data: HsvuiData,
@@ -61,6 +67,7 @@ impl Hsvui {
         self.hsvui_data.color_attr
     }
 
+    /*
     /// Development routine, may be removed for production code:
     pub(crate) fn show_current_hsv_attr(&self) {
         if self.hsvui_data.color_attr == ColorAttributes::Hue {
@@ -71,6 +78,7 @@ impl Hsvui {
             rprintln!("Ready to adjust Val.")
         }
     }
+    */
 
     // These two functions are only called internally, no need to qualify them
     // with public crate syntax:

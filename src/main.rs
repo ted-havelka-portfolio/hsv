@@ -62,7 +62,7 @@ use crate::rgbdisplay::RgbDisplay;
 
 // 500ms at 1MHz count rate.
 const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
-const DEV_RGB_TIME_LONG: u32 = 2000 * 1_000_000 / 1000;
+// const DEV_RGB_TIME_LONG: u32 = 2000 * 1_000_000 / 1000;
 
 // Ref https://crates.io/crates/sb-rotary-encoder
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
@@ -70,8 +70,10 @@ const PULSE_DIVIDER: i32 = 4;
 // Update frequency in Hz, used for velocity calculation
 const UPDATE_FREQUENCY: i32 = 5;
 
-const HSV_CLAMP_MIN: usize = 1;
-const HSV_CLAMP_MAX: usize = 99;
+// Hue, Sat, Val parameters meeasured in percent.
+const HSV_CLAMP_MIN: usize = 10;
+const HSV_CLAMP_MAX: usize = 90;
+const ROTARY_CLICK_SCALING: usize = 5;
 
 /// --------------------------------------------------------------------
 /// - SECTION - Muteces and atomics
@@ -108,6 +110,9 @@ static VAL: AtomicUsize = AtomicUsize::new(1);
 fn TIMER1() {
     let count = COUNTER.fetch_add(1, AcqRel);
     let hue = HUE.load(Ordering::SeqCst);
+    let sat = SAT.load(Ordering::SeqCst);
+    let val = VAL.load(Ordering::SeqCst);
+
     // rprintln!("Timeout event {}", count + 1);
     // if count % 400 == 0 {
     //     rprintln!("Timeout event {}, Hue set to {}", count + 1, hue);
@@ -115,12 +120,7 @@ fn TIMER1() {
 
     RGB_TIMER_MTX.with_lock(|timer| {
         // timer.start(DEV_RGB_TIME_LONG);
-        if count % 2 == 0 {
-            timer.start(hue as u32 * 100);
-        } else {
-            timer.start((100 - hue as u32) * 100);
-        }
-        timer.reset_event();
+        timer.disable_interrupt();
     });
 
     RGB_DISPLAY_MTX.with_lock(|rgb_led| {
@@ -129,12 +129,36 @@ fn TIMER1() {
         } else {
             rgb_led.red_led_on();
         }
+
+        let schedule: [u8; 4] = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
+        if count % 250 == 0 {
+            rprintln!("schedule {:?}", schedule);
+        }
+    });
+
+    RGB_TIMER_MTX.with_lock(|timer| {
+        if count % 2 == 0 {
+            timer.start(hue as u32 * 300);
+        } else {
+            timer.start((100 - hue as u32) * 300);
+        }
+        timer.reset_event();
+        timer.enable_interrupt();
     });
 }
 
 /// --------------------------------------------------------------------
-/// - SECTION - main routine
+/// - SECTION - functions
 /// --------------------------------------------------------------------
+
+fn reset_rgb_timer() {
+    RGB_TIMER_MTX.with_lock(|timer| {
+        timer.disable_interrupt();
+        timer.reset_event();
+        timer.start(DEV_RGB_TIME);
+        timer.enable_interrupt();
+    });
+}
 
 #[entry]
 fn init() -> ! {
@@ -163,8 +187,6 @@ fn init() -> ! {
     rgb_timer.start(DEV_RGB_TIME);
     rgb_timer.enable_interrupt();
     RGB_TIMER_MTX.init(rgb_timer);
-
-
 
     // Set up the NVIC to handle interrupts:
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER1) };
@@ -196,6 +218,9 @@ fn init() -> ! {
     let mut hue = HUE.fetch_add(0, AcqRel);
     let mut sat = SAT.fetch_add(0, AcqRel);
     let mut val = VAL.fetch_add(0, AcqRel);
+
+    let mut count = 1;
+    let mut prev_count = 0;
 
     loop {
         // Check user input, namely buttons:
@@ -232,21 +257,21 @@ fn init() -> ! {
                     rprintln!("3: CW");
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            hue = HUE.fetch_add(1, AcqRel);
+                            hue = HUE.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if hue > HSV_CLAMP_MAX {
                                 HUE.store(HSV_CLAMP_MAX, Ordering::SeqCst);
                                 hue = HUE.load(Ordering::SeqCst);
                             }
                         },
                         ColorAttributes::Sat => {
-                            sat = SAT.fetch_add(1, AcqRel);
+                            sat = SAT.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if sat > HSV_CLAMP_MAX {
                                 SAT.store(HSV_CLAMP_MAX, Ordering::SeqCst);
                                 sat = SAT.load(Ordering::SeqCst);
                             }
                         },
                         ColorAttributes::Val => {
-                            val = VAL.fetch_add(1, AcqRel);
+                            val = VAL.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if val > HSV_CLAMP_MAX {
                                 VAL.store(HSV_CLAMP_MAX, Ordering::SeqCst);
                                 val = VAL.load(Ordering::SeqCst);
@@ -259,21 +284,21 @@ fn init() -> ! {
                     rprintln!("3: CCW");
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            hue = HUE.fetch_sub(1, AcqRel);
+                            hue = HUE.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if hue < HSV_CLAMP_MIN {
                                 HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
                                 hue = HUE.load(Ordering::SeqCst);
                             }
                         },
                         ColorAttributes::Sat => {
-                            sat = SAT.fetch_sub(1, AcqRel);
+                            sat = SAT.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if sat < HSV_CLAMP_MIN {
                                 SAT.store(HSV_CLAMP_MIN, Ordering::SeqCst);
                                 sat = SAT.load(Ordering::SeqCst);
                             }
                         },
                         ColorAttributes::Val => {
-                            val = VAL.fetch_sub(1, AcqRel);
+                            val = VAL.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
                             if val < HSV_CLAMP_MIN {
                                 VAL.store(HSV_CLAMP_MIN, Ordering::SeqCst);
                                 val = VAL.load(Ordering::SeqCst);
@@ -286,7 +311,14 @@ fn init() -> ! {
             // TODO [ ] Determine why timedelta is always zero after first reading:
             // rprintln!("timedelta: {}", event.timedelta().unwrap());
 
+            prev_count = count;
+            count = COUNTER.load(Ordering::SeqCst);
             rprintln!("- DEV 0311 - Hue {}, Sat {}, Val {}", hue, sat, val);
+            rprintln!("- DEV 0311 - Timer1 event count {}", count);
+
+            if count == prev_count {
+                reset_rgb_timer();
+            }
 
             // NOTE this code never seems to run:
             if let Some(velocity) = event.velocity(UPDATE_FREQUENCY) {
