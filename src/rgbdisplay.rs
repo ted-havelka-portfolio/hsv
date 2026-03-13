@@ -1,10 +1,11 @@
-/// Creation date 2026-03-06
-/// This crate part of HSV project (Hue, Saturation, Value to RGB)
-///
-/// Crate `rgbled` encapsulates:
-///   * the color control pins to a red-green-blue LED.
-///   * local vars for red, green and blue duty cycles.
-///   * functions to turn on and turn off individual LEDs of the RGB LED.
+// Creation date 2026-03-06
+//
+// This crate part of HSV project (Hue, Saturation, Value to RGB)
+//
+// Crate `rgbled` encapsulates:
+//   * the color control pins to a red-green-blue LED.
+//   * local vars for red, green and blue duty cycles.
+//   * functions to turn on and turn off individual LEDs of the RGB LED.
 
 use crate::hal::gpio;
 use crate::hal::gpio::Output;
@@ -57,7 +58,7 @@ impl RgbDisplay {
     // turned on.
     pub(crate) fn calc_down_time(&mut self, rgb_duty_cycles: [u8; 3]) {
         let mut max1: u8;
-        let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
+        let [mut r1, mut g1, mut b1] = rgb_duty_cycles;
 
         if r1 > HSV_CLAMP_MAX {
             r1 = HSV_CLAMP_MAX;
@@ -96,7 +97,7 @@ impl RgbDisplay {
     // Function to determine current frame partial period.
     pub(crate) fn shortest_duty_cycle_of(&self, rgb_duty_cycles: [u8; 3]) -> [u8; 4] {
         let mut min1: u8 = HSV_CLAMP_MAX;
-        let [r1, g1, b1] = rgb_duty_cycles.clone();
+        let [r1, g1, b1] = rgb_duty_cycles;
 
         // Find minimun duty cycle among red and green
         if r1 > 0 {

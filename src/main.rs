@@ -352,7 +352,7 @@ fn init() -> ! {
                 }
             }
 
-            if hsv_updated == true {
+            if hsv_updated {
                 rprintln!("One of H, S and V values changed, now are {} {} {}",
                     hue, sat, val);
 
@@ -365,7 +365,7 @@ fn init() -> ! {
                 let hsv_vals = Hsv {h: hue1, s: sat1, v: val1};
 
                 // HSV to RGB conversion call here:
-                let rgb_vals: Rgb = Hsv::from(hsv_vals).into();
+                let rgb_vals: Rgb = hsv_vals.into();
 
                 let red1: usize = (rgb_vals.r * 100.0) as usize;
                 let grn1: usize = (rgb_vals.g * 100.0) as usize;
