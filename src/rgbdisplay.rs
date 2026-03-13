@@ -12,7 +12,8 @@ use crate::hal::gpio::PushPull;
 
 use embedded_hal::digital::OutputPin;
 
-use rtt_target::{rprintln};
+// Note add following crate use statement to enable RTT type debugging:
+// use rtt_target::{rprintln};
 
 // Hue, Sat, Val parameters have an integral range inclusive of:
 const HSV_CLAMP_MIN: u8 = 1;
@@ -128,31 +129,6 @@ impl RgbDisplay {
                 min1 = r1;
             }
         }
-
-/*
-        // For these scratchpad R, G, B value reduce all by the shortest
-        // remaining duty cycle:
-        if r1 >= min1 {
-            r1 = r1 - min1;
-        }
-
-        if g1 >= min1 {
-            g1 = g1 - min1;
-        }
-
-        if b1 >= min1 {
-            b1 = b1 - min1;
-        }
-
-        // This test misses the important case where R = G = B and R > 0:
-        if r1 == 0 && g1 == 0 && b1 == 0 {
-            min1 = self.down_time;
-        }
-*/
-
-        // After the subtraction of min1 one or more RGB remaining duty cycle
-        // periods will be zero.  Those RGB channels with no remaining
-        // duty cycle beyond min1 must be turned off at next timer1 timeout.
 
         [r1, g1, b1, min1]
     }

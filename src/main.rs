@@ -61,7 +61,7 @@ const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
 const PULSE_DIVIDER: i32 = 4;
 
-const DUTY_CYCLE_SCALING: u32 = 5;
+const DUTY_CYCLE_SCALING: u32 = 2;
 
 const FRAME_IS_NEW: usize = 0;
 const FRAME_IN_PROGRESS: usize = 1;
@@ -114,7 +114,7 @@ fn TIMER1() {
 
     // When starting a display frame grab the R,G,B values from application:
     if frame_state == FRAME_IS_NEW {
-        rprintln!("FRAME BEGIN");
+        // rprintln!("FRAME BEGIN");
         red = RED.fetch_add(0, AcqRel);
         grn = GRN.fetch_add(0, AcqRel);
         blu = BLU.fetch_add(0, AcqRel);
@@ -129,7 +129,7 @@ fn TIMER1() {
         FRAME_STATE.store(FRAME_IN_PROGRESS, Ordering::SeqCst);
     } else {
     // When frame in progress grab the scratchpad R,G,B values:
-        rprintln!("FRAME IN PROGRESS");
+        // rprintln!("FRAME IN PROGRESS");
         red = R1.fetch_add(0, AcqRel);
         grn = G1.fetch_add(0, AcqRel);
         blu = B1.fetch_add(0, AcqRel);
@@ -182,13 +182,6 @@ fn TIMER1() {
         R1.store(r1 as usize, Ordering::SeqCst);
         G1.store(g1 as usize, Ordering::SeqCst);
         B1.store(b1 as usize, Ordering::SeqCst);
-
-        /*
-        if r1 == 0 && g1 == 0 && b1 == 0 {
-            duty_cycle_remaining = rgb_led.down_time();
-            FRAME_STATE.store(FRAME_IS_NEW, Ordering::SeqCst);
-        }
-        */
     });
 
     RGB_TIMER_MTX.with_lock(|timer| {
@@ -197,7 +190,7 @@ fn TIMER1() {
         } else if duty_cycle_remaining > 99 {
             duty_cycle_remaining = 98;
         }
-        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 1500);
+        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 20);
 
         timer.reset_event();
     });
