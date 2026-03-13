@@ -14,77 +14,134 @@ use embedded_hal::digital::OutputPin;
 
 use rtt_target::rprintln;
 
-// Hue, Saturation, Value attributes and logic:
-// use crate::hsvui::Hsvui; // ::LedColors;
+// Hue, Sat, Val parameters have an integral range inclusive of:
+const HSV_CLAMP_MIN: u8 = 1;
+const HSV_CLAMP_MAX: u8 = 25;
 
 pub(crate) struct RgbDisplay {
-    // What tick of the frame are we currently on?
-    // Setting to 0 starts a new frame.
-    tick: u32,
-    // What ticks should R, G, B LEDs turn off at?
-    schedule: [u32; 3],
-    // Schedule to start at next frame.
-    next_schedule: Option<[u32; 3]>,
+    hsv_clamp_min: u8,
+    hsv_clamp_max: u8,
+    down_time: u8,
     // R, G, and B pins.
     rgb_pins: [gpio::Pin<Output<PushPull>>; 3],
-    // Timer used to reach next tick.
-    // pub rgb_timer: Timer<pac::TIMER1>,
 }
 
 impl RgbDisplay {
 
     pub(crate) fn new(pins: [gpio::Pin<Output<PushPull>>; 3]) -> Self {
-        let tick = 0u32;
-        // Schedule may grow to be a 2-d array to hold in one
-        // dimension between 0 and 3 leds to turn off.
-        let schedule = [0; 3];
-        //
-        let next_schedule: Option<[u32; 3]> = Some([0u32; 3]);
-
+        let hsv_clamp_min = HSV_CLAMP_MIN;
+        let hsv_clamp_max = HSV_CLAMP_MAX;
+        // Last time period of an RGB display "frame" during which all LEDs off
+        let down_time = 1u8;
         // RGB pins
         let rgb_pins = pins;
 
-        // TODO [ ] Consider renaming parameter `timer1` to something more general
-        // let rgb_timer = timer1;
         Self {
-            tick,
-            schedule,
-            next_schedule,
+            hsv_clamp_min,
+            hsv_clamp_max,
+            down_time,
             rgb_pins,
         }
     }
 
+    pub(crate) fn hsv_clamp_min(&self) -> u8 {
+        self.hsv_clamp_min
+    }
+
+    pub(crate) fn hsv_clamp_max(&self) -> u8 {
+        self.hsv_clamp_max
+    }
+
+    pub(crate) fn calc_down_time(&mut self, rgb_duty_cycles: [u8; 3]) {
+        let mut max1: u8;
+        // let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
+        let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
+
+        if r1 > HSV_CLAMP_MAX {
+            r1 = HSV_CLAMP_MAX;
+        }
+
+        if g1 > HSV_CLAMP_MAX {
+            g1 = HSV_CLAMP_MAX;
+        }
+
+        if b1 > HSV_CLAMP_MAX {
+            b1 = HSV_CLAMP_MAX;
+        }
+
+        if r1 >= g1 {
+            max1 = r1;
+        } else {
+            max1 = g1;
+        }
+
+        if b1 >= max1 {
+            max1 = b1;
+        }
+
+        // Assure clock gets some non-zero period:
+        if max1 >= HSV_CLAMP_MAX {
+            max1 = HSV_CLAMP_MAX -1;
+        }
+
+        // TODO [ ] Create a const value for the fully on duty cycle of 100:
+        // self.down_time = 100 - max1;
+        self.down_time = HSV_CLAMP_MAX - max1;
+    }
+
+    pub(crate) fn down_time(&self) -> u8 {
+        self.down_time
+    }
+
     // Function to determine current timer countdown value to apply, to achieve
     // correct duty cycle for lowest duty cycle colors.  Note this routine
-    // figures two things: (1) the period a.k.a. duration of the active part of
-    // the shortest LED color duty cycle and (2) the color or colors channels
-    // of the RGB LED to turn off at end of this period.
-    pub(crate) fn shortest_on_time(&self, rgb_duty_cycles: [u8; 3]) -> [u8; 4] {
-        let mut min1: u8;
-        /*
-        let mut r1: u8;
-        let mut g1: u8;
-        let mut b1: u8;
-        */
+    // figures two things:
+    // (1) remainder of smallest duty cycle among red, green, and blue LEDs
+    // (2) the color or color turn off at end of this period
+    pub(crate) fn shortest_duty_cycle_of(&self, rgb_duty_cycles: [u8; 3]) -> [u8; 4] {
+        let mut min1: u8 = HSV_CLAMP_MAX;
         let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
         // rprintln!("r1, g1, b1 hold {} {} {}", r1, g1, b1);
 
-        // Find the smallest duty cycle among red and green RGB vals:
-        if r1 <= g1 {
-            min1 = r1;
+         // rprintln!("min calc . . .");
+        // Find minimun duty cycle among red and green
+        if r1 > 0 {
+            if r1 <= g1 || g1 == 0 {
+                // rprintln!("min r1");
+                min1 = r1;
+            } else if g1 > 0 {
+                min1 = g1;
+                // rprintln!("min g1");
+            }
+        } else if g1 > 0 {
+            // Find minimum duty cycle among green and blue
+            if g1 <= b1 || b1 == 0 {
+                min1 = g1;
+                // rprintln!("min g1");
+            } else {
+                min1 = b1;
+                // rprintln!("min b1");
+            }
         } else {
-            min1 = g1;
-        }
-
-        // Find the smallest duty cycle among blue and previous determination:
-        if b1 <= min1 {
             min1 = b1;
         }
 
-        r1 = r1 - min1;
-        g1 = g1 - min1;
-        b1 = b1 - min1;
-        // rprintln!("After min sort r1, g1, b1 hold {} {} {}", r1, g1, b1);
+        if r1 >= min1 {
+            r1 = r1 - min1;
+        }
+
+        if g1 >= min1 {
+            g1 = g1 - min1;
+        }
+
+        if b1 >= min1 {
+            b1 = b1 - min1;
+        }
+
+        if r1 == 0 && g1 == 0 && b1 == 0 {
+            rprintln!("- DEV - all duty cycles over");
+            min1 = self.down_time;
+        }
 
         // After the subtraction of min1 one or more RGB remaining duty cycle
         // periods will be zero.  Those RGB channels with no remaining
@@ -111,18 +168,18 @@ impl RgbDisplay {
     }
 
     pub(crate) fn grn_led_on(&mut self) {
-        let pin_grn = &mut self.rgb_pins[0];
+        let pin_grn = &mut self.rgb_pins[1];
         pin_grn.set_low().unwrap();
     }
 
     // Blue LED pin control
     pub(crate) fn blu_led_off(&mut self) {
-        let pin_blu = &mut self.rgb_pins[1];
+        let pin_blu = &mut self.rgb_pins[2];
         pin_blu.set_high().unwrap();
     }
 
     pub(crate) fn blu_led_on(&mut self) {
-        let pin_blu = &mut self.rgb_pins[0];
+        let pin_blu = &mut self.rgb_pins[2];
         pin_blu.set_low().unwrap();
     }
 }

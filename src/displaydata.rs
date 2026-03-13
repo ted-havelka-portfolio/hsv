@@ -8,13 +8,14 @@ pub(crate) struct DisplayData {
 }
 
 impl DisplayData {
+/*
     pub(crate) fn new() -> Self {
         let led_array = [[0; 5]; 5];
         Self {
             led_array,
         }
     }
-/*
+
     pub(crate) fn clear(&mut self) -> [[u8; 5]; 5] {
         for row in 0..5 {
             for col in 0..5 {

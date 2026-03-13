@@ -56,38 +56,27 @@ use crate::rgbdisplay::RgbDisplay;
 /// - SECTION - constants
 /// --------------------------------------------------------------------
 
-// TODO [ ] Check whether 'duty max' constant will be needed to crate
-//          `rgbdisplay` or another localt-to-project crate:
-// const LED_DUTY_MAX: u16 = 10000;
-
 // 500ms at 1MHz count rate.
 const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
-// const DEV_RGB_TIME_LONG: u32 = 2000 * 1_000_000 / 1000;
 
 // Ref https://crates.io/crates/sb-rotary-encoder
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
 const PULSE_DIVIDER: i32 = 4;
 // Update frequency in Hz, used for velocity calculation
-const UPDATE_FREQUENCY: i32 = 5;
+// TODO [ ] Check if needed:
+// const UPDATE_FREQUENCY: i32 = 5;
 
 // Hue, Sat, Val parameters meeasured in percent.
-const HSV_CLAMP_MIN: usize = 10;
-const HSV_CLAMP_MAX: usize = 90;
-const ROTARY_CLICK_SCALING: usize = 5;
+// const HSV_CLAMP_MIN: usize = 1;
+// const HSV_CLAMP_MAX: usize = 25;
+const DUTY_CYCLE_SCALING: u32 = 5;
+
+const FRAME_IS_NEW: usize = 0;
+const FRAME_IN_PROGRESS: usize = 1;
 
 /// --------------------------------------------------------------------
 /// - SECTION - Muteces and atomics
 /// --------------------------------------------------------------------
-
-// https://docs.rust-embedded.org/discovery-mb2/15-interrupts/index.html
-// https://docs.rust-embedded.org/discovery-mb2/15-interrupts/sharing-data-with-globals.html
-
-// TODO [ ] Amend 05-HSV project readme with note on where LockMut code was
-//          initially found and adapted for this project.
-//
-// Example code from online discovery-mb2 book:
-// static GPIOTE_PERIPHERAL: LockMut<gpiote::Gpiote> = LockMut::new();
-// . . . we replace this with timer peripheral.
 
 static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
 
@@ -97,10 +86,23 @@ static RGB_DISPLAY_MTX: LockMut<crate::rgbdisplay::RgbDisplay> = LockMut::new();
 // Ref https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+static FRAME_STATE: AtomicUsize = AtomicUsize::new(0);
+
 // TODO [ ] Replace hard-coded 1's with constant:
 static HUE: AtomicUsize = AtomicUsize::new(1);
 static SAT: AtomicUsize = AtomicUsize::new(1);
 static VAL: AtomicUsize = AtomicUsize::new(1);
+
+static RED: AtomicUsize = AtomicUsize::new(1);
+static GRN: AtomicUsize = AtomicUsize::new(1);
+static BLU: AtomicUsize = AtomicUsize::new(1);
+
+// These atomics are scratchpad values updated over the course of a single
+// RGB LED frame, composed of two, three or four ticks to support each color's
+// duty cycle:
+static R1: AtomicUsize = AtomicUsize::new(1);
+static G1: AtomicUsize = AtomicUsize::new(1);
+static B1: AtomicUsize = AtomicUsize::new(1);
 
 /// --------------------------------------------------------------------
 /// - SECTION - ISRs
@@ -108,39 +110,97 @@ static VAL: AtomicUsize = AtomicUsize::new(1);
 
 #[interrupt]
 fn TIMER1() {
+    // TODO [ ] Review and check whether 'count' needed:
     let count = COUNTER.fetch_add(1, AcqRel);
-    let hue = HUE.load(Ordering::SeqCst);
-    let sat = SAT.load(Ordering::SeqCst);
-    let val = VAL.load(Ordering::SeqCst);
 
-    let mut schedule: [u8; 4] = [0,0,0,0];
+    // let frame_state = FRAME_STATE.load(Ordering::SeqCst);
+    let frame_state = FRAME_STATE.fetch_add(0, AcqRel);
 
-    RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-        if count % 2 == 0 {
-            rgb_led.red_led_off();
-        } else {
-            rgb_led.red_led_on();
+    let red: usize;
+    let grn: usize;
+    let blu: usize;
+
+    // When starting a display frame grab the R,G,B values from application:
+    if frame_state == FRAME_IS_NEW {
+        red = RED.fetch_add(0, AcqRel);
+        grn = GRN.fetch_add(0, AcqRel);
+        blu = BLU.fetch_add(0, AcqRel);
+
+        if count % 1 == 0 {
+            rprintln!("starting frame with red, grn, blu = {}, {}, {}", red, grn, blu);
         }
 
-        // TODO [ ] Convert H, S, V to R, G, B:
-        // let schedule: [u8; 4] = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
-        schedule = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
-        if count % 250 == 0 {
-            rprintln!("schedule {:?}", schedule);
+        RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+            rgb_led.calc_down_time([red as u8, grn as u8, blu as u8]);
+            rgb_led.red_led_on();
+            rgb_led.grn_led_on();
+            rgb_led.blu_led_on();
+        });
+
+        FRAME_STATE.store(FRAME_IN_PROGRESS, Ordering::SeqCst);
+    } else {
+    // When frame in progress grab the scratchpad R,G,B values:
+        red = R1.fetch_add(0, AcqRel);
+        grn = G1.fetch_add(0, AcqRel);
+        blu = B1.fetch_add(0, AcqRel);
+        // rprintln!("progressing with red, grn, blu = {}, {}, {}", red, grn, blu);
+    }
+
+    // Declare variables to be updated and then read to turn off next LEDs whose
+    // duty cycle is ending in present frame:
+    let mut schedule: [u8; 4] = [0,0,0,0];
+    let mut duty_cycle_remaining = 10;
+
+    RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+        // If we're starting a frame need to figure present frame element period
+        // and if we're in progress we need to do the same:
+
+        // rprintln!("passing red, grn, blu = {}, {}, {}", red, grn, blu);
+
+        schedule = rgb_led.shortest_duty_cycle_of([red as u8, grn as u8, blu as u8]);
+
+        let r1 = schedule[0];
+        let g1 = schedule[1];
+        let b1 = schedule[2];
+        duty_cycle_remaining = schedule[3];
+
+        // rprintln!("got back r1, g1, b1, next period = {} {} {} {}", r1, g1, b1,
+        //               duty_cycle_remaining); 
+
+        // Store the scratch pad values for R, G, B duty cycle remainders:
+        R1.store(r1 as usize, Ordering::SeqCst);
+        G1.store(g1 as usize, Ordering::SeqCst);
+        B1.store(b1 as usize, Ordering::SeqCst);
+
+        if r1 == 0 {
+            // rprintln!("red off");
+            rgb_led.red_led_off();
+        }
+
+        if g1 == 0 {
+            //rprintln!("grn off");
+            rgb_led.grn_led_off();
+        }
+
+        if b1 == 0 {
+            //rprintln!("blu off");
+            rgb_led.blu_led_off();
+        }
+
+        if r1 == 0 && g1 == 0 && b1 == 0 {
+            duty_cycle_remaining = rgb_led.down_time();
+            FRAME_STATE.store(FRAME_IS_NEW, Ordering::SeqCst);
         }
     });
 
-    if count % 100 == 0 {
-        rprintln!("Schedule r1, g1, b1, min1 or next period = {} {} {} {}",
-            &schedule[0], &schedule[1], &schedule[2], &schedule[3]);
-    }
-
     RGB_TIMER_MTX.with_lock(|timer| {
-        if count % 2 == 0 {
-            timer.start(hue as u32 * 300);
-        } else {
-            timer.start((100 - hue as u32) * 300);
+        if duty_cycle_remaining < 1 {
+            duty_cycle_remaining = 2;
+        } else if duty_cycle_remaining > 99 {
+            duty_cycle_remaining = 98;
         }
+        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 1000);
+
         timer.reset_event();
     });
 }
@@ -148,15 +208,6 @@ fn TIMER1() {
 /// --------------------------------------------------------------------
 /// - SECTION - functions
 /// --------------------------------------------------------------------
-
-fn reset_rgb_timer() {
-    RGB_TIMER_MTX.with_lock(|timer| {
-        timer.disable_interrupt();
-        timer.reset_event();
-        timer.start(DEV_RGB_TIME);
-        timer.enable_interrupt();
-    });
-}
 
 #[entry]
 fn init() -> ! {
@@ -168,11 +219,12 @@ fn init() -> ! {
     // Configure a timer for use with `delay_ms()` function:
     let mut timer = hal::Timer::new(board.TIMER0);
 
-    // HSV-to-RGB logic and tri-color LED control:
+    // tri-color LED control pins:
     // TODO [ ] Amend use statements section to shorten reference to `Level`:
-    let blu_edge08 = board.edge.e08.into_push_pull_output(hal::gpio::Level::Low);
+
+    let blu_edge08 = board.edge.e08.into_push_pull_output(hal::gpio::Level::High);
     let grn_edge09 = board.edge.e09.into_push_pull_output(hal::gpio::Level::Low);
-    let red_edge12 = board.edge.e12.into_push_pull_output(hal::gpio::Level::Low);
+    let red_edge12 = board.edge.e12.into_push_pull_output(hal::gpio::Level::High);
 
     let pins = [red_edge12.degrade(), grn_edge09.degrade(), blu_edge08.degrade()];
     let rgb_led = RgbDisplay::new(pins);
@@ -217,8 +269,9 @@ fn init() -> ! {
     let mut sat = SAT.fetch_add(0, AcqRel);
     let mut val = VAL.fetch_add(0, AcqRel);
 
-    let mut count = 1;
-    let mut prev_count = 0;
+    let mut count; // = 1;
+
+    let mut debug_count: u32 = 0;
 
     loop {
         // Check user input, namely buttons:
@@ -235,44 +288,59 @@ fn init() -> ! {
                 ColorAttributes::Sat => { image = DisplayData::show_s_for_saturation(); },
                 ColorAttributes::Val => { image = DisplayData::show_v_for_value(); },
             }
-            display.show(&mut timer, image, 100);
+            display.show(&mut timer, image, 300);
         }
         prev_attr = cur_attr;
 
         // TODO [ ] Clean up this swatch of code to read quadrature encoder:
+        /*
         let read_qen_a_res = input_a.is_low().unwrap();
         let read_qen_b_res = input_b.is_low().unwrap();
         let val_qen_b = read_qen_b_res;
         let val_qen_a = read_qen_a_res;
+        */
+        let val_qen_a = input_a.is_low().unwrap();
+        let val_qen_b = input_b.is_low().unwrap();
+
+        let mut hsv_clamp_min: u8 = 1;
+        let mut hsv_clamp_max: u8 = 1;
+
+        RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+            hsv_clamp_min = rgb_led.hsv_clamp_min();
+            hsv_clamp_max = rgb_led.hsv_clamp_max();
+        });
 
         // Ref https://crates.io/crates/sb-rotary-encoder
         if let Some(event) = encoder.update(val_qen_a, val_qen_b, tick, PULSE_DIVIDER) {
             rprintln!("1. {:?}", event);
-
             rprintln!("2. value: {}", event.value());
+
+            let mut hsv_updated: bool = false;
+
             match event.direction() {
                 Direction::Clockwise => {
                     rprintln!("3: CW");
+                    hsv_updated = true;
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            hue = HUE.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if hue > HSV_CLAMP_MAX {
-                                HUE.store(HSV_CLAMP_MAX, Ordering::SeqCst);
-                                hue = HUE.load(Ordering::SeqCst);
+                            hue = HUE.fetch_add(1, AcqRel);
+                            if hue > hsv_clamp_max as usize {
+                                HUE.store(hsv_clamp_max as usize, Ordering::SeqCst);
+                                hue = HUE.fetch_add(0, AcqRel);
                             }
                         },
                         ColorAttributes::Sat => {
-                            sat = SAT.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if sat > HSV_CLAMP_MAX {
-                                SAT.store(HSV_CLAMP_MAX, Ordering::SeqCst);
-                                sat = SAT.load(Ordering::SeqCst);
+                            sat = SAT.fetch_add(1, AcqRel);
+                            if sat > hsv_clamp_max as usize {
+                                SAT.store(hsv_clamp_max as usize, Ordering::SeqCst);
+                                sat = SAT.fetch_add(0, AcqRel);
                             }
                         },
                         ColorAttributes::Val => {
-                            val = VAL.fetch_add(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if val > HSV_CLAMP_MAX {
-                                VAL.store(HSV_CLAMP_MAX, Ordering::SeqCst);
-                                val = VAL.load(Ordering::SeqCst);
+                            val = VAL.fetch_add(1, AcqRel);
+                            if val > hsv_clamp_max as usize {
+                                VAL.store(hsv_clamp_max as usize, Ordering::SeqCst);
+                                val = VAL.fetch_add(0, AcqRel);
                             }
                         },
                     }
@@ -280,56 +348,63 @@ fn init() -> ! {
 
                 Direction::CounterClockwise => {
                     rprintln!("3: CCW");
+                    hsv_updated = true;
                     match cur_attr {
                         ColorAttributes::Hue => {
-                            hue = HUE.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if hue < HSV_CLAMP_MIN {
-                                HUE.store(HSV_CLAMP_MIN, Ordering::SeqCst);
-                                hue = HUE.load(Ordering::SeqCst);
+                            hue = HUE.fetch_sub(1, AcqRel);
+                            if hue < hsv_clamp_min as usize {
+                                HUE.store(hsv_clamp_min as usize, Ordering::SeqCst);
+                                hue = HUE.fetch_sub(0, AcqRel);
                             }
                         },
                         ColorAttributes::Sat => {
-                            sat = SAT.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if sat < HSV_CLAMP_MIN {
-                                SAT.store(HSV_CLAMP_MIN, Ordering::SeqCst);
-                                sat = SAT.load(Ordering::SeqCst);
+                            sat = SAT.fetch_sub(1, AcqRel);
+                            if sat < hsv_clamp_min as usize {
+                                SAT.store(hsv_clamp_min as usize, Ordering::SeqCst);
+                                sat = SAT.fetch_sub(0, AcqRel);
                             }
                         },
                         ColorAttributes::Val => {
-                            val = VAL.fetch_sub(1 * ROTARY_CLICK_SCALING, AcqRel);
-                            if val < HSV_CLAMP_MIN {
-                                VAL.store(HSV_CLAMP_MIN, Ordering::SeqCst);
-                                val = VAL.load(Ordering::SeqCst);
+                            val = VAL.fetch_sub(1, AcqRel);
+                            if val < hsv_clamp_min as usize {
+                                VAL.store(hsv_clamp_min as usize, Ordering::SeqCst);
+                                val = VAL.fetch_sub(0, AcqRel);
                             }
                         },
                     }
                 }
             }
 
-            // TODO [ ] Determine why timedelta is always zero after first reading:
-            // rprintln!("timedelta: {}", event.timedelta().unwrap());
+            if hsv_updated == true {
+                rprintln!("One of H, S and V values changed, now are {} {} {}",
+                    hue, sat, val);
 
-            prev_count = count;
-            count = COUNTER.load(Ordering::SeqCst);
+                // TODO [ ] Add HSV to RGB conversion call here
+
+                RED.store(hue, Ordering::SeqCst);
+                GRN.store(sat, Ordering::SeqCst);
+                BLU.store(val, Ordering::SeqCst);
+            }
+
+            count = COUNTER.fetch_add(0, AcqRel);
+
             rprintln!("- DEV 0311 - Hue {}, Sat {}, Val {}", hue, sat, val);
             rprintln!("- DEV 0311 - Timer1 event count {}", count);
-
-            if count == prev_count {
-                reset_rgb_timer();
-            }
-
-            // NOTE this code never seems to run:
-            if let Some(velocity) = event.velocity(UPDATE_FREQUENCY) {
-                rprintln!("{:?}", velocity);
-
-                // The velocity allows to calculate a dynamic step value to
-                // accelerate the encoder when moved quickly.
-                let acceleration = velocity >> 4;
-                let _step = event.step() + (event.step() * acceleration);
-            }
         }
+/*
+        debug_count = debug_count + 1;
+        if debug_count % 2 == 0 {
+            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+                rprintln!("- blue LED on {}", debug_count);
+                rgb_led.blu_led_on();
+            });
+        } else {
+            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+                rgb_led.blu_led_off();
+            });
+        }
+*/
 
-
-        timer.delay_ms(10);
+        timer.delay_ms(100);
     }
 }
