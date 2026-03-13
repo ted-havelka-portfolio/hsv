@@ -47,11 +47,16 @@ Functions completed so far include:
 * Selected parameter is highlighted by one of 'H', 'S' and 'V' on 5x5 LED martix
 * Parameter adjustment using quadrature encoder
 * A rough timer-only based PWM function
+* Some rather ugly logic to calculate timer periods and effect R, G, and B
+   PWM signals.
+
+Note:  colors glitch at certain transitions, appears to occur when any two
+color enter into equal duty cycles or at the moment they again differ.
 
 ## What remains to do
 
 * Conversion of HSV to RGB values
-* The variable duty cycle and variable timer countdown "schedule" calculation
+* Debugging the duty cycle "schedule" calculation to overcome color glitches
 * Fine tuning of timer based interrupt to give 100Hz RGB display update rate
 
 ## Most challenging
