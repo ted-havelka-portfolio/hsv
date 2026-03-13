@@ -50,14 +50,12 @@ Functions completed so far include:
 * Some rather ugly logic to calculate timer periods and effect R, G, and B
    PWM signals.
 
-Note:  colors glitch at certain transitions, appears to occur when any two
-color enter into equal duty cycles or at the moment they again differ.
-
 ## What remains to do
 
 * Conversion of HSV to RGB values
-* Debugging the duty cycle "schedule" calculation to overcome color glitches
 * Fine tuning of timer based interrupt to give 100Hz RGB display update rate
+* A better factoring of partial duty cycle calculations, moving these to
+   `rgbdisplay` project crate and out of timer1 interrupt service routine.
 
 ## Most challenging
 
