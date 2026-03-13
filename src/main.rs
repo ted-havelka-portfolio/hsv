@@ -176,7 +176,7 @@ fn TIMER1() {
         } else if duty_cycle_remaining > 99 {
             duty_cycle_remaining = 98;
         }
-        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 100);
+        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 20);
 
         timer.reset_event();
     });

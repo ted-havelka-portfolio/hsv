@@ -50,6 +50,8 @@ impl RgbDisplay {
         self.hsv_clamp_max
     }
 
+    // Calculate a frame's "down time", the latter time during which no LEDs are
+    // turned on.
     pub(crate) fn calc_down_time(&mut self, rgb_duty_cycles: [u8; 3]) {
         let mut max1: u8;
         let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
@@ -88,17 +90,11 @@ impl RgbDisplay {
         self.down_time
     }
 
-    // Function to determine current timer countdown value to apply, to achieve
-    // correct duty cycle for lowest duty cycle colors.  Note this routine
-    // figures two things:
-    // (1) remainder of smallest duty cycle among red, green, and blue LEDs
-    // (2) the color or color turn off at end of this period
+    // Function to determine current frame partial period.
     pub(crate) fn shortest_duty_cycle_of(&self, rgb_duty_cycles: [u8; 3]) -> [u8; 4] {
         let mut min1: u8 = HSV_CLAMP_MAX;
         let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
-        // rprintln!("r1, g1, b1 hold {} {} {}", r1, g1, b1);
 
-         // rprintln!("min calc . . .");
         // Find minimun duty cycle among red and green
         if r1 > 0 {
             if r1 <= g1 || g1 == 0 {
