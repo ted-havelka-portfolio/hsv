@@ -3,14 +3,6 @@
 
 // Microbit-v2 HSV sample app
 
-// Starting point for HSV assignment which uses
-// [x] PWM
-// [x] RGB LED
-// [x] Rotary encoder
-// [x] Buttons A and B press event handling
-//
-// [ ] Factor PWM channel setup to file other than main.rs
-
 use core::sync::atomic::{AtomicUsize, Ordering::AcqRel};
 use core::sync::atomic::Ordering;
 
@@ -49,6 +41,10 @@ use crate::displaydata::DisplayData;
 
 mod rgbdisplay;
 use crate::rgbdisplay::RgbDisplay;
+
+// Library crate from https://github.com/pdx-cs-rust-embedded/hsv/blob/main/src/lib.rs
+mod hsv;
+use crate::hsv::{Hsv, Rgb};
 
 // ---------------------------------------------------------------------
 // - SECTION - constants
@@ -296,7 +292,7 @@ fn init() -> ! {
             rprintln!("1. {:?}", event);
             rprintln!("2. value: {}", event.value());
 
-            let mut hsv_updated: bool = false;
+            let hsv_updated: bool;
 
             match event.direction() {
                 Direction::Clockwise => {
@@ -360,11 +356,24 @@ fn init() -> ! {
                 rprintln!("One of H, S and V values changed, now are {} {} {}",
                     hue, sat, val);
 
-                // TODO [ ] Add HSV to RGB conversion call here
+                // TODO [ ] Look at changing HUE, SAT and VAL atomics to type f32,
+                //          to avoid these tedious type conversions:
+                let hue1: f32 = hue as f32 / 100.0;
+                let sat1: f32 = hue as f32 / 100.0;
+                let val1: f32 = hue as f32 / 100.0;
 
-                RED.store(hue, Ordering::SeqCst);
-                GRN.store(sat, Ordering::SeqCst);
-                BLU.store(val, Ordering::SeqCst);
+                let hsv_vals = Hsv {h: hue1, s: sat1, v: val1};
+
+                // HSV to RGB conversion call here:
+                let rgb_vals: Rgb = Hsv::from(hsv_vals).into();
+
+                let red1: usize = (rgb_vals.r * 100.0) as usize;
+                let grn1: usize = (rgb_vals.g * 100.0) as usize;
+                let blu1: usize = (rgb_vals.b * 100.0) as usize;
+
+                RED.store(red1, Ordering::SeqCst);
+                GRN.store(grn1, Ordering::SeqCst);
+                BLU.store(blu1, Ordering::SeqCst);
             }
 
             count = COUNTER.fetch_add(0, AcqRel);

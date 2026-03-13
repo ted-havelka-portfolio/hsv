@@ -17,7 +17,7 @@ use embedded_hal::digital::OutputPin;
 
 // Hue, Sat, Val parameters have an integral range inclusive of:
 const HSV_CLAMP_MIN: u8 = 1;
-const HSV_CLAMP_MAX: u8 = 50;
+const HSV_CLAMP_MAX: u8 = 99;
 
 pub(crate) struct RgbDisplay {
     hsv_clamp_min: u8,
