@@ -12,6 +12,8 @@ use crate::hal::gpio::PushPull;
 
 use embedded_hal::digital::OutputPin;
 
+use rtt_target::{rprintln};
+
 // Hue, Sat, Val parameters have an integral range inclusive of:
 const HSV_CLAMP_MIN: u8 = 1;
 const HSV_CLAMP_MAX: u8 = 50;
@@ -93,7 +95,7 @@ impl RgbDisplay {
     // Function to determine current frame partial period.
     pub(crate) fn shortest_duty_cycle_of(&self, rgb_duty_cycles: [u8; 3]) -> [u8; 4] {
         let mut min1: u8 = HSV_CLAMP_MAX;
-        let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
+        let [r1, g1, b1] = rgb_duty_cycles.clone();
 
         // Find minimun duty cycle among red and green
         if r1 > 0 {
@@ -113,6 +115,23 @@ impl RgbDisplay {
             min1 = b1;
         }
 
+        // If all R, G, B duty cycle remainders are zero, then the timer
+        // must be set to its calculated "down time" or "all off" period.
+        // Otherwise set it to the duty cycle remainder that's shared
+        // when all three LEDs have the same duty cycle:
+        if r1 == g1 && g1 == b1 {
+            // rprintln!("R, G and B are equal");
+            if r1 == 0 {
+                // rprintln!("reached downtime");
+                min1 = self.down_time;
+            } else if r1 == 1 {
+                min1 = r1;
+            }
+        }
+
+/*
+        // For these scratchpad R, G, B value reduce all by the shortest
+        // remaining duty cycle:
         if r1 >= min1 {
             r1 = r1 - min1;
         }
@@ -125,9 +144,11 @@ impl RgbDisplay {
             b1 = b1 - min1;
         }
 
+        // This test misses the important case where R = G = B and R > 0:
         if r1 == 0 && g1 == 0 && b1 == 0 {
             min1 = self.down_time;
         }
+*/
 
         // After the subtraction of min1 one or more RGB remaining duty cycle
         // periods will be zero.  Those RGB channels with no remaining

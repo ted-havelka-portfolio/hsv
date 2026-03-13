@@ -114,6 +114,7 @@ fn TIMER1() {
 
     // When starting a display frame grab the R,G,B values from application:
     if frame_state == FRAME_IS_NEW {
+        rprintln!("FRAME BEGIN");
         red = RED.fetch_add(0, AcqRel);
         grn = GRN.fetch_add(0, AcqRel);
         blu = BLU.fetch_add(0, AcqRel);
@@ -128,6 +129,7 @@ fn TIMER1() {
         FRAME_STATE.store(FRAME_IN_PROGRESS, Ordering::SeqCst);
     } else {
     // When frame in progress grab the scratchpad R,G,B values:
+        rprintln!("FRAME IN PROGRESS");
         red = R1.fetch_add(0, AcqRel);
         grn = G1.fetch_add(0, AcqRel);
         blu = B1.fetch_add(0, AcqRel);
@@ -142,15 +144,10 @@ fn TIMER1() {
 
         schedule = rgb_led.shortest_duty_cycle_of([red as u8, grn as u8, blu as u8]);
 
-        let r1 = schedule[0];
-        let g1 = schedule[1];
-        let b1 = schedule[2];
+        let mut r1 = schedule[0];
+        let mut g1 = schedule[1];
+        let mut b1 = schedule[2];
         duty_cycle_remaining = schedule[3];
-
-        // Store the scratch pad values for R, G, B duty cycle remainders:
-        R1.store(r1 as usize, Ordering::SeqCst);
-        G1.store(g1 as usize, Ordering::SeqCst);
-        B1.store(b1 as usize, Ordering::SeqCst);
 
         if r1 == 0 {
             rgb_led.red_led_off();
@@ -168,6 +165,30 @@ fn TIMER1() {
             duty_cycle_remaining = rgb_led.down_time();
             FRAME_STATE.store(FRAME_IS_NEW, Ordering::SeqCst);
         }
+
+        if r1 >= duty_cycle_remaining {
+            r1 -= duty_cycle_remaining;
+        }
+
+        if g1 >= duty_cycle_remaining {
+            g1 -= duty_cycle_remaining;
+        }
+
+        if b1 >= duty_cycle_remaining {
+            b1 -= duty_cycle_remaining;
+        }
+
+        // Store the scratch pad values for R, G, B duty cycle remainders:
+        R1.store(r1 as usize, Ordering::SeqCst);
+        G1.store(g1 as usize, Ordering::SeqCst);
+        B1.store(b1 as usize, Ordering::SeqCst);
+
+        /*
+        if r1 == 0 && g1 == 0 && b1 == 0 {
+            duty_cycle_remaining = rgb_led.down_time();
+            FRAME_STATE.store(FRAME_IS_NEW, Ordering::SeqCst);
+        }
+        */
     });
 
     RGB_TIMER_MTX.with_lock(|timer| {
@@ -176,7 +197,7 @@ fn TIMER1() {
         } else if duty_cycle_remaining > 99 {
             duty_cycle_remaining = 98;
         }
-        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 20);
+        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 1500);
 
         timer.reset_event();
     });
