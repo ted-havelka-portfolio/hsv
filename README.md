@@ -46,14 +46,15 @@ Functions completed so far include:
 * Hue, Saturation and Brightness (Value) selection with wrapping via buttons
 * Selected parameter is highlighted by one of 'H', 'S' and 'V' on 5x5 LED martix
 * Parameter adjustment using quadrature encoder
-* A rough timer-only based PWM function
+* Conversion of HSV to RGB values
+* A timer-only based PWM function
 * Some rather ugly logic to calculate timer periods and effect R, G, and B
    PWM signals.
 
 ## What remains to do
 
-* Conversion of HSV to RGB values
 * Fine tuning of timer based interrupt to give 100Hz RGB display update rate
+* Button debouncing
 * A better factoring of partial duty cycle calculations, moving these to
    `rgbdisplay` project crate and out of timer1 interrupt service routine.
 
@@ -69,13 +70,37 @@ application to pass in GPIO pins to the LED.
 
 A more difficult development aspect lay in the inclusion of the timer peripheral
 in the RgbDisplay module.  Though there are clearly straightforward ways to
-accomplish this factoring of specific peripheral code, the author Ted was not
-able to find a correct syntax or program constructs to correctly update the
-timer in the non-main.rs module.  There was question also about where the, in
-this case TIMER1 interrupt should live.  Should it be in `main.rs` or in the
-module which owns the timer?
+accomplish this, author Ted H was not able to find a correct syntax to update
+the timer in the RgbDisplay module.
+
+The most pressing improvement this project demands is a reworking of the
+RgbDisplay module.  At least half of the "next change in frame" logic to
+support arbitrary duty cycles per color is implemented in the timer1 ISR.  This
+is an anti-pattern.  It makes the code harder to understand and not re-usable
+outside of the sample app.
+
+## Hardware limitations
+
+In this demo application a rotary encoder was selected over a potentiometer,
+for value adustments over ranges.  The thinking was that an encoder would
+provide finer control.  It may in the sense that it is slow to traverse the
+hue, saturation and value ranges which span a hundred steps.  But the encoder
+turns out to be a little too slow for convenient use.  It was very difficult
+to show much LED output change in a video less than fifteen seconds long.
+
+The other hardware shortfall, is in using a non-logarithmic scale of values
+for H, S and V settings.  Going from dimmest LED output to the next step is a
+huge jump, and most of the higher steps are hard to distinguish.
 
 ## New stuff learned
+
+New topics of interest from the HSV demo development:
+
+- `cargo tree` to analyze crate dependencies on local host
+
+- Local dot cargo registry
+
+- "Hue" parameter in action
 
 From a late night Zulip conversation learned about `cargo tree`, which was
 helpful to find a crate which was included in the developing HSV application but
@@ -89,3 +114,10 @@ sources used across the projects on the localhost.  There is a ton of Rust
 souce code to study in this registry!  This is helpful since some of the
 links at [Crates.io](https://crates.io/) which say "source" do not lead to
 source code nor to Github code repositories.
+
+The a later reward in the project comes from seeing the effects of sweeping
+through the range of Hue values.  As a programmer and not a graphic artist, over
+years the author has more often encountered color online interms of R, G, and B
+parameters.  Hue come close to spanning the rainbow in a manner which to adjust
+R, G and B values one at a time does not.  Getting touch and adjust the hardware
+in person really brings this home!
