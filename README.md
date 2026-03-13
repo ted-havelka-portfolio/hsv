@@ -57,6 +57,7 @@ Functions completed so far include:
 * Button debouncing
 * A better factoring of partial duty cycle calculations, moving these to
    `rgbdisplay` project crate and out of timer1 interrupt service routine.
+* Make use of rotary encoder push button as a "zero all" feature.
 
 ## Most challenging
 
@@ -91,6 +92,12 @@ to show much LED output change in a video less than fifteen seconds long.
 The other hardware shortfall, is in using a non-logarithmic scale of values
 for H, S and V settings.  Going from dimmest LED output to the next step is a
 huge jump, and most of the higher steps are hard to distinguish.
+
+## Other documents
+
+There is a short video (about seven seconds long) of the HSV application
+running on the Microbit-v2 board with external parts.  The video is located in
+this project's `notes` directory.
 
 ## New stuff learned
 
