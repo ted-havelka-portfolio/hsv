@@ -12,11 +12,9 @@ use crate::hal::gpio::PushPull;
 
 use embedded_hal::digital::OutputPin;
 
-use rtt_target::rprintln;
-
 // Hue, Sat, Val parameters have an integral range inclusive of:
 const HSV_CLAMP_MIN: u8 = 1;
-const HSV_CLAMP_MAX: u8 = 25;
+const HSV_CLAMP_MAX: u8 = 50;
 
 pub(crate) struct RgbDisplay {
     hsv_clamp_min: u8,
@@ -54,7 +52,6 @@ impl RgbDisplay {
 
     pub(crate) fn calc_down_time(&mut self, rgb_duty_cycles: [u8; 3]) {
         let mut max1: u8;
-        // let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
         let [mut r1, mut g1, mut b1] = rgb_duty_cycles.clone();
 
         if r1 > HSV_CLAMP_MAX {
@@ -84,8 +81,6 @@ impl RgbDisplay {
             max1 = HSV_CLAMP_MAX -1;
         }
 
-        // TODO [ ] Create a const value for the fully on duty cycle of 100:
-        // self.down_time = 100 - max1;
         self.down_time = HSV_CLAMP_MAX - max1;
     }
 
@@ -107,20 +102,16 @@ impl RgbDisplay {
         // Find minimun duty cycle among red and green
         if r1 > 0 {
             if r1 <= g1 || g1 == 0 {
-                // rprintln!("min r1");
                 min1 = r1;
             } else if g1 > 0 {
                 min1 = g1;
-                // rprintln!("min g1");
             }
         } else if g1 > 0 {
             // Find minimum duty cycle among green and blue
             if g1 <= b1 || b1 == 0 {
                 min1 = g1;
-                // rprintln!("min g1");
             } else {
                 min1 = b1;
-                // rprintln!("min b1");
             }
         } else {
             min1 = b1;
@@ -139,7 +130,6 @@ impl RgbDisplay {
         }
 
         if r1 == 0 && g1 == 0 && b1 == 0 {
-            rprintln!("- DEV - all duty cycles over");
             min1 = self.down_time;
         }
 

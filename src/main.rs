@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 
-/// Microbit-v2 HSV sample app
+// Microbit-v2 HSV sample app
 
 // Starting point for HSV assignment which uses
-// [i] PWM
-// [i] RGB LED
+// [x] PWM
+// [x] RGB LED
 // [x] Rotary encoder
 // [x] Buttons A and B press event handling
 //
@@ -34,9 +34,7 @@ use microbit::{
 
 use sb_rotary_encoder::Direction;
 
-///
-/// Local-to-project crates:
-///
+// Local-to-project crates:
 mod buttons;
 use crate::buttons::ButtonPress;
 use crate::buttons::{init_buttons};
@@ -52,9 +50,9 @@ use crate::displaydata::DisplayData;
 mod rgbdisplay;
 use crate::rgbdisplay::RgbDisplay;
 
-/// --------------------------------------------------------------------
-/// - SECTION - constants
-/// --------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// - SECTION - constants
+// ---------------------------------------------------------------------
 
 // 500ms at 1MHz count rate.
 const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
@@ -62,21 +60,15 @@ const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
 // Ref https://crates.io/crates/sb-rotary-encoder
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
 const PULSE_DIVIDER: i32 = 4;
-// Update frequency in Hz, used for velocity calculation
-// TODO [ ] Check if needed:
-// const UPDATE_FREQUENCY: i32 = 5;
 
-// Hue, Sat, Val parameters meeasured in percent.
-// const HSV_CLAMP_MIN: usize = 1;
-// const HSV_CLAMP_MAX: usize = 25;
 const DUTY_CYCLE_SCALING: u32 = 5;
 
 const FRAME_IS_NEW: usize = 0;
 const FRAME_IN_PROGRESS: usize = 1;
 
-/// --------------------------------------------------------------------
-/// - SECTION - Muteces and atomics
-/// --------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// - SECTION - Muteces and atomics
+// ---------------------------------------------------------------------
 
 static RGB_TIMER_MTX: LockMut<hal::Timer<pac::TIMER1>> = LockMut::new();
 
@@ -88,7 +80,6 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 static FRAME_STATE: AtomicUsize = AtomicUsize::new(0);
 
-// TODO [ ] Replace hard-coded 1's with constant:
 static HUE: AtomicUsize = AtomicUsize::new(1);
 static SAT: AtomicUsize = AtomicUsize::new(1);
 static VAL: AtomicUsize = AtomicUsize::new(1);
@@ -104,14 +95,15 @@ static R1: AtomicUsize = AtomicUsize::new(1);
 static G1: AtomicUsize = AtomicUsize::new(1);
 static B1: AtomicUsize = AtomicUsize::new(1);
 
-/// --------------------------------------------------------------------
-/// - SECTION - ISRs
-/// --------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// - SECTION - ISRs
+// ---------------------------------------------------------------------
 
 #[interrupt]
 fn TIMER1() {
     // TODO [ ] Review and check whether 'count' needed:
-    let count = COUNTER.fetch_add(1, AcqRel);
+    //  Note `count` is helpful to have for diagnostics and debugging
+    let _count = COUNTER.fetch_add(1, AcqRel);
 
     // let frame_state = FRAME_STATE.load(Ordering::SeqCst);
     let frame_state = FRAME_STATE.fetch_add(0, AcqRel);
@@ -126,10 +118,6 @@ fn TIMER1() {
         grn = GRN.fetch_add(0, AcqRel);
         blu = BLU.fetch_add(0, AcqRel);
 
-        if count % 1 == 0 {
-            rprintln!("starting frame with red, grn, blu = {}, {}, {}", red, grn, blu);
-        }
-
         RGB_DISPLAY_MTX.with_lock(|rgb_led| {
             rgb_led.calc_down_time([red as u8, grn as u8, blu as u8]);
             rgb_led.red_led_on();
@@ -143,7 +131,6 @@ fn TIMER1() {
         red = R1.fetch_add(0, AcqRel);
         grn = G1.fetch_add(0, AcqRel);
         blu = B1.fetch_add(0, AcqRel);
-        // rprintln!("progressing with red, grn, blu = {}, {}, {}", red, grn, blu);
     }
 
     // Declare variables to be updated and then read to turn off next LEDs whose
@@ -152,10 +139,6 @@ fn TIMER1() {
     let mut duty_cycle_remaining = 10;
 
     RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-        // If we're starting a frame need to figure present frame element period
-        // and if we're in progress we need to do the same:
-
-        // rprintln!("passing red, grn, blu = {}, {}, {}", red, grn, blu);
 
         schedule = rgb_led.shortest_duty_cycle_of([red as u8, grn as u8, blu as u8]);
 
@@ -164,26 +147,20 @@ fn TIMER1() {
         let b1 = schedule[2];
         duty_cycle_remaining = schedule[3];
 
-        // rprintln!("got back r1, g1, b1, next period = {} {} {} {}", r1, g1, b1,
-        //               duty_cycle_remaining); 
-
         // Store the scratch pad values for R, G, B duty cycle remainders:
         R1.store(r1 as usize, Ordering::SeqCst);
         G1.store(g1 as usize, Ordering::SeqCst);
         B1.store(b1 as usize, Ordering::SeqCst);
 
         if r1 == 0 {
-            // rprintln!("red off");
             rgb_led.red_led_off();
         }
 
         if g1 == 0 {
-            //rprintln!("grn off");
             rgb_led.grn_led_off();
         }
 
         if b1 == 0 {
-            //rprintln!("blu off");
             rgb_led.blu_led_off();
         }
 
@@ -199,7 +176,7 @@ fn TIMER1() {
         } else if duty_cycle_remaining > 99 {
             duty_cycle_remaining = 98;
         }
-        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 1000);
+        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 100);
 
         timer.reset_event();
     });
@@ -269,9 +246,7 @@ fn init() -> ! {
     let mut sat = SAT.fetch_add(0, AcqRel);
     let mut val = VAL.fetch_add(0, AcqRel);
 
-    let mut count; // = 1;
-
-    let mut debug_count: u32 = 0;
+    let mut count;
 
     loop {
         // Check user input, namely buttons:
@@ -280,7 +255,6 @@ fn init() -> ! {
 
         let image: [[u8; 5]; 5];
 
-        // ui.show_current_hsv_attr();
         cur_attr = ui.current_color_attr();
         if cur_attr != prev_attr {
             match cur_attr {
@@ -292,13 +266,6 @@ fn init() -> ! {
         }
         prev_attr = cur_attr;
 
-        // TODO [ ] Clean up this swatch of code to read quadrature encoder:
-        /*
-        let read_qen_a_res = input_a.is_low().unwrap();
-        let read_qen_b_res = input_b.is_low().unwrap();
-        let val_qen_b = read_qen_b_res;
-        let val_qen_a = read_qen_a_res;
-        */
         let val_qen_a = input_a.is_low().unwrap();
         let val_qen_b = input_b.is_low().unwrap();
 
@@ -391,20 +358,6 @@ fn init() -> ! {
             rprintln!("- DEV 0311 - Hue {}, Sat {}, Val {}", hue, sat, val);
             rprintln!("- DEV 0311 - Timer1 event count {}", count);
         }
-/*
-        debug_count = debug_count + 1;
-        if debug_count % 2 == 0 {
-            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-                rprintln!("- blue LED on {}", debug_count);
-                rgb_led.blu_led_on();
-            });
-        } else {
-            RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-                rgb_led.blu_led_off();
-            });
-        }
-*/
-
-        timer.delay_ms(100);
+        timer.delay_ms(10);
     }
 }
