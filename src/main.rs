@@ -113,15 +113,7 @@ fn TIMER1() {
     let sat = SAT.load(Ordering::SeqCst);
     let val = VAL.load(Ordering::SeqCst);
 
-    // rprintln!("Timeout event {}", count + 1);
-    // if count % 400 == 0 {
-    //     rprintln!("Timeout event {}, Hue set to {}", count + 1, hue);
-    // }
-
-    RGB_TIMER_MTX.with_lock(|timer| {
-        // timer.start(DEV_RGB_TIME_LONG);
-        timer.disable_interrupt();
-    });
+    let mut schedule: [u8; 4] = [0,0,0,0];
 
     RGB_DISPLAY_MTX.with_lock(|rgb_led| {
         if count % 2 == 0 {
@@ -130,11 +122,18 @@ fn TIMER1() {
             rgb_led.red_led_on();
         }
 
-        let schedule: [u8; 4] = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
+        // TODO [ ] Convert H, S, V to R, G, B:
+        // let schedule: [u8; 4] = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
+        schedule = rgb_led.shortest_on_time([hue as u8, sat as u8, val as u8]);
         if count % 250 == 0 {
             rprintln!("schedule {:?}", schedule);
         }
     });
+
+    if count % 100 == 0 {
+        rprintln!("Schedule r1, g1, b1, min1 or next period = {} {} {} {}",
+            &schedule[0], &schedule[1], &schedule[2], &schedule[3]);
+    }
 
     RGB_TIMER_MTX.with_lock(|timer| {
         if count % 2 == 0 {
@@ -143,7 +142,6 @@ fn TIMER1() {
             timer.start((100 - hue as u32) * 300);
         }
         timer.reset_event();
-        timer.enable_interrupt();
     });
 }
 
