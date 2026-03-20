@@ -376,6 +376,12 @@ fn init() -> ! {
                 RED.store(red1, Ordering::SeqCst);
                 GRN.store(grn1, Ordering::SeqCst);
                 BLU.store(blu1, Ordering::SeqCst);
+
+                // Call the later RgbDisplay side frame periods calculation:
+                RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+                    rgb_led.calc_display_frame_periods([red1 as u8, grn1 as u8, blu1 as u8]);
+                });
+
             }
 
             count = COUNTER.fetch_add(0, AcqRel);
