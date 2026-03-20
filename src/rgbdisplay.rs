@@ -20,14 +20,16 @@ use embedded_hal::digital::OutputPin;
 const HSV_CLAMP_MIN: u8 = 1;
 const HSV_CLAMP_MAX: u8 = 99;
 
+#[derive(Clone, Debug)]
 pub struct FrameElement {
-    pub state: u8,
+    pub period: u8,
     pub rstate: u8,
     pub gstate: u8,
     pub bstate: u8,
     // element: [state, rstate, gstate, bstate];
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct DutyCycleTiming {
     pub fe0: FrameElement,
     pub fe1: FrameElement,
@@ -39,10 +41,10 @@ impl DutyCycleTiming {
     fn new() -> Self {
         // Declare frame elements, each a partial time of
         // total frame display time:
-        let fe0 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
-        let fe1 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
-        let fe2 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
-        let fe3 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe0 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe1 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe2 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe3 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
         Self { fe0, fe1, fe2, fe3 }
     }
 }
@@ -82,6 +84,137 @@ impl RgbDisplay {
 
     pub(crate) fn hsv_clamp_max(&self) -> u8 {
         self.hsv_clamp_max
+    }
+
+    pub(crate) fn zero_frame_timing_data(duty_cycle_timing: &mut DutyCycleTiming)
+        -> &mut DutyCycleTiming {
+        duty_cycle_timing.fe0 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        duty_cycle_timing.fe1 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        duty_cycle_timing.fe2 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        duty_cycle_timing.fe3 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        duty_cycle_timing
+    }
+
+    // Calculate the periods within present RGB display time frame, those
+    // periods needed to realize each color LEDs on time, as well as any
+    // end-of-frame time with all LEDs off
+
+    pub(crate) fn calc_display_frame_periods(&mut self, rgb_duty_cycles: [u8; 3]) 
+        -> DutyCycleTiming {
+        RgbDisplay::zero_frame_timing_data(&mut self.duty_cycle_timing);
+//                  ^^^^^^^^^^^^^^^^^^^^^^ associated function, not a method
+
+        // Set up to compare red, green and blue duty cycle values
+        let r1 = rgb_duty_cycles[0];
+        let g1 = rgb_duty_cycles[1];
+        let b1 = rgb_duty_cycles[2];
+
+        // Full duty cycle
+        const FDC: u8 = 100; 
+
+        if r1 == 0 && g1 == 0 && b1 == 0
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: FDC, rstate: 0, gstate: 0, bstate: 0};
+        }
+        else if r1 >= 100 && g1 >= 100 && b1 >= 100
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: FDC, rstate: 1, gstate: 1, bstate: 1};
+        }
+        else if r1 == g1 && g1 == b1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: r1, rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: FDC- r1, rstate: 1, gstate: 1, bstate: 1};
+        }
+
+        // Cover the cases where two colors share same duty cycle
+        else if r1 == g1 {
+            // todo
+            if r1 < b1 {
+                self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: b1 - r1,  rstate: 0, gstate: 0, bstate: 1};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+            } else {
+                self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: r1 - b1,  rstate: 1, gstate: 1, bstate: 0};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
+            }
+        }
+        else if g1 == b1 {
+            if g1 < r1 {
+                self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: r1 - g1,  rstate: 1, gstate: 0, bstate: 0};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+            } else {
+                self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: g1 - r1,  rstate: 0, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+            }
+        }
+        else if b1 == r1 {
+            if b1 < g1 {
+                self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: g1 - b1,  rstate: 0, gstate: 1, bstate: 0};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+            } else {
+                self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: b1 - g1,  rstate: 1, gstate: 0, bstate: 1};
+                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+            }
+        }
+
+        // Cover cases where all three colors have distinct duty cycles
+        // Yes, this function is really brute forcing the duty cycle partial period
+        // determination . . .
+
+        // When red has shortest duty cycle:
+        else if r1 < g1 && g1 < b1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: g1 - r1,  rstate: 0, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe2 = FrameElement {period: b1 - g1,  rstate: 0, gstate: 0, bstate: 1};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+        }
+        else if r1 < b1 && b1 < g1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: b1 - r1,  rstate: 0, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe2 = FrameElement {period: g1 - b1,  rstate: 0, gstate: 1, bstate: 0};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+        }
+
+        // When green has shortest duty cycle:
+        else if g1 < r1 && r1 < b1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: r1 - g1,  rstate: 1, gstate: 0, bstate: 1};
+            self.duty_cycle_timing.fe2 = FrameElement {period: b1 - r1,  rstate: 0, gstate: 0, bstate: 1};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+        }
+        else if g1 < b1 && b1 < r1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: b1 - g1,  rstate: 1, gstate: 0, bstate: 1};
+            self.duty_cycle_timing.fe2 = FrameElement {period: r1 - b1,  rstate: 1, gstate: 0, bstate: 0};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
+        }
+
+        // When blue has shortest duty cycle:
+        else if b1 < r1 && r1 < g1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: r1 - b1,  rstate: 1, gstate: 1, bstate: 0};
+            self.duty_cycle_timing.fe2 = FrameElement {period: g1 - r1,  rstate: 0, gstate: 1, bstate: 0};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+        }
+        else if b1 < g1 && g1 < r1
+        {
+            self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+            self.duty_cycle_timing.fe1 = FrameElement {period: g1 - b1,  rstate: 1, gstate: 1, bstate: 0};
+            self.duty_cycle_timing.fe2 = FrameElement {period: r1 - g1,  rstate: 1, gstate: 0, bstate: 0};
+            self.duty_cycle_timing.fe3 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
+        }
+
+        self.duty_cycle_timing.clone()
     }
 
     // Calculate a frame's "down time", the latter time during which no LEDs are
