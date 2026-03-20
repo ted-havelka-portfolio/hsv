@@ -26,8 +26,14 @@ pub struct FrameElement {
     pub rstate: u8,
     pub gstate: u8,
     pub bstate: u8,
-    // element: [state, rstate, gstate, bstate];
 }
+
+impl FrameElement {
+    pub(crate) fn new() -> Self {
+        FrameElement { period: 0, rstate: 0, gstate: 0, bstate: 0 }
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub(crate) struct DutyCycleTiming {
@@ -41,7 +47,7 @@ impl DutyCycleTiming {
     fn new() -> Self {
         // Declare frame elements, each a partial time of
         // total frame display time:
-        let fe0 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe0 = FrameElement {period: 100, rstate: 0, gstate: 0, bstate: 0};
         let fe1 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
         let fe2 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
         let fe3 = FrameElement {period: 0, rstate: 0, gstate: 0, bstate: 0};
@@ -55,7 +61,7 @@ pub(crate) struct RgbDisplay {
     down_time: u8,
     // R, G, and B pins.
     rgb_pins: [gpio::Pin<Output<PushPull>>; 3],
-    duty_cycle_timing: DutyCycleTiming,
+    pub duty_cycle_timing: DutyCycleTiming,
 }
 
 impl RgbDisplay {
@@ -127,38 +133,56 @@ impl RgbDisplay {
         }
 
         // Cover the cases where two colors share same duty cycle
+        // else if r1 == g1 {
         else if r1 == g1 {
-            // todo
-            if r1 < b1 {
-                self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: b1 - r1,  rstate: 0, gstate: 0, bstate: 1};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+            if r1 > 0 {
+                if r1 < b1 {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: b1 - r1,  rstate: 0, gstate: 0, bstate: 1};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+                } else {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: r1 - b1,  rstate: 1, gstate: 1, bstate: 0};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
+                }
+            // When red and green have zero duty cycle, only blue is on
             } else {
-                self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: r1 - b1,  rstate: 1, gstate: 1, bstate: 0};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
+                self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 0, gstate: 0, bstate: 1};
+                self.duty_cycle_timing.fe1 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
             }
         }
         else if g1 == b1 {
-            if g1 < r1 {
-                self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: r1 - g1,  rstate: 1, gstate: 0, bstate: 0};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+            if g1 > 0 {
+                if g1 < r1 {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: r1 - g1,  rstate: 1, gstate: 0, bstate: 0};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+                } else {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: g1 - r1,  rstate: 0, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+                }
+            // When green and blue have zero duty cycle, only red is on
             } else {
-                self.duty_cycle_timing.fe0 = FrameElement {period: r1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: g1 - r1,  rstate: 0, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+                self.duty_cycle_timing.fe0 = FrameElement {period: r1     ,  rstate: 1, gstate: 0, bstate: 0};
+                self.duty_cycle_timing.fe1 = FrameElement {period: FDC - r1, rstate: 0, gstate: 0, bstate: 0};
             }
         }
         else if b1 == r1 {
-            if b1 < g1 {
-                self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: g1 - b1,  rstate: 0, gstate: 1, bstate: 0};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+            if b1 > 0 {
+                if b1 < g1 {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: b1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: g1 - b1,  rstate: 0, gstate: 1, bstate: 0};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
+                } else {
+                    self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
+                    self.duty_cycle_timing.fe1 = FrameElement {period: b1 - g1,  rstate: 1, gstate: 0, bstate: 1};
+                    self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+                }
+            // When blue and red have zero duty cycle, only green is on
             } else {
-                self.duty_cycle_timing.fe0 = FrameElement {period: g1,       rstate: 1, gstate: 1, bstate: 1};
-                self.duty_cycle_timing.fe1 = FrameElement {period: b1 - g1,  rstate: 1, gstate: 0, bstate: 1};
-                self.duty_cycle_timing.fe2 = FrameElement {period: FDC - b1, rstate: 0, gstate: 0, bstate: 0};
+                self.duty_cycle_timing.fe0 = FrameElement {period: g1     ,  rstate: 0, gstate: 1, bstate: 0};
+                self.duty_cycle_timing.fe1 = FrameElement {period: FDC - g1, rstate: 0, gstate: 0, bstate: 0};
             }
         }
 

@@ -40,7 +40,7 @@ mod displaydata;
 use crate::displaydata::DisplayData;
 
 mod rgbdisplay;
-use crate::rgbdisplay::RgbDisplay;
+use crate::rgbdisplay::{FrameElement, RgbDisplay};
 
 // Library crate from https://github.com/pdx-cs-rust-embedded/hsv/blob/main/src/lib.rs
 mod hsv;
@@ -57,10 +57,8 @@ const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
 // Number of pulses required for one step. 4 is a typical value for encoders with detents.
 const PULSE_DIVIDER: i32 = 4;
 
-const DUTY_CYCLE_SCALING: u32 = 2;
-
-const FRAME_IS_NEW: usize = 0;
-const FRAME_IN_PROGRESS: usize = 1;
+// const DUTY_CYCLE_SCALING: u32 = 2;
+const DUTY_CYCLE_SCALING: u32 = 20;
 
 // ---------------------------------------------------------------------
 // - SECTION - Muteces and atomics
@@ -74,8 +72,6 @@ static RGB_DISPLAY_MTX: LockMut<crate::rgbdisplay::RgbDisplay> = LockMut::new();
 // Ref https://doc.rust-lang.org/core/sync/atomic/struct.AtomicUsize.html
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-static FRAME_STATE: AtomicUsize = AtomicUsize::new(0);
-
 static HUE: AtomicUsize = AtomicUsize::new(1);
 static SAT: AtomicUsize = AtomicUsize::new(1);
 static VAL: AtomicUsize = AtomicUsize::new(1);
@@ -84,12 +80,9 @@ static RED: AtomicUsize = AtomicUsize::new(1);
 static GRN: AtomicUsize = AtomicUsize::new(1);
 static BLU: AtomicUsize = AtomicUsize::new(1);
 
-// These atomics are scratchpad values updated over the course of a single
-// RGB LED frame, composed of two, three or four ticks to support each color's
-// duty cycle:
-static R1: AtomicUsize = AtomicUsize::new(1);
-static G1: AtomicUsize = AtomicUsize::new(1);
-static B1: AtomicUsize = AtomicUsize::new(1);
+// Frames have between one and four elements, allow timer ISR to track
+// which element in the sequence of time periods in a frame we're on:
+static FRAME_ELEMENT: AtomicUsize = AtomicUsize::new(0);
 
 // ---------------------------------------------------------------------
 // - SECTION - ISRs
@@ -97,99 +90,77 @@ static B1: AtomicUsize = AtomicUsize::new(1);
 
 #[interrupt]
 fn TIMER1() {
-    // TODO [ ] Review and check whether 'count' needed:
-    //  Note `count` is helpful to have for diagnostics and debugging
-    let _count = COUNTER.fetch_add(1, AcqRel);
 
-    // let frame_state = FRAME_STATE.load(Ordering::SeqCst);
-    let frame_state = FRAME_STATE.fetch_add(0, AcqRel);
+    let mut felement = FRAME_ELEMENT.fetch_add(0, AcqRel);
+    // rprintln!("working with felement {}", felement);
 
-    let red: usize;
-    let grn: usize;
-    let blu: usize;
-
-    // When starting a display frame grab the R,G,B values from application:
-    if frame_state == FRAME_IS_NEW {
-        // rprintln!("FRAME BEGIN");
-        red = RED.fetch_add(0, AcqRel);
-        grn = GRN.fetch_add(0, AcqRel);
-        blu = BLU.fetch_add(0, AcqRel);
-
-        RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-            rgb_led.calc_down_time([red as u8, grn as u8, blu as u8]);
-            rgb_led.red_led_on();
-            rgb_led.grn_led_on();
-            rgb_led.blu_led_on();
-        });
-
-        FRAME_STATE.store(FRAME_IN_PROGRESS, Ordering::SeqCst);
-    } else {
-    // When frame in progress grab the scratchpad R,G,B values:
-        // rprintln!("FRAME IN PROGRESS");
-        red = R1.fetch_add(0, AcqRel);
-        grn = G1.fetch_add(0, AcqRel);
-        blu = B1.fetch_add(0, AcqRel);
-    }
-
-    // Declare variables to be updated and then read to turn off next LEDs whose
-    // duty cycle is ending in present frame:
-    let mut schedule: [u8; 4] = [0,0,0,0];
-    let mut duty_cycle_remaining = 10;
+    let mut frame_element = FrameElement::new();
 
     RGB_DISPLAY_MTX.with_lock(|rgb_led| {
-
-        schedule = rgb_led.shortest_duty_cycle_of([red as u8, grn as u8, blu as u8]);
-
-        let mut r1 = schedule[0];
-        let mut g1 = schedule[1];
-        let mut b1 = schedule[2];
-        duty_cycle_remaining = schedule[3];
-
-        if r1 == 0 {
-            rgb_led.red_led_off();
+        match felement {
+            0 => { frame_element = rgb_led.duty_cycle_timing.fe0.clone(); },
+            1 => { frame_element = rgb_led.duty_cycle_timing.fe1.clone(); },
+            2 => { frame_element = rgb_led.duty_cycle_timing.fe2.clone(); },
+            3 => { frame_element = rgb_led.duty_cycle_timing.fe3.clone(); },
+            4_usize.. => todo!(),
         }
-
-        if g1 == 0 {
-            rgb_led.grn_led_off();
-        }
-
-        if b1 == 0 {
-            rgb_led.blu_led_off();
-        }
-
-        if r1 == 0 && g1 == 0 && b1 == 0 {
-            duty_cycle_remaining = rgb_led.down_time();
-            FRAME_STATE.store(FRAME_IS_NEW, Ordering::SeqCst);
-        }
-
-        if r1 >= duty_cycle_remaining {
-            r1 -= duty_cycle_remaining;
-        }
-
-        if g1 >= duty_cycle_remaining {
-            g1 -= duty_cycle_remaining;
-        }
-
-        if b1 >= duty_cycle_remaining {
-            b1 -= duty_cycle_remaining;
-        }
-
-        // Store the scratch pad values for R, G, B duty cycle remainders:
-        R1.store(r1 as usize, Ordering::SeqCst);
-        G1.store(g1 as usize, Ordering::SeqCst);
-        B1.store(b1 as usize, Ordering::SeqCst);
     });
 
-    RGB_TIMER_MTX.with_lock(|timer| {
-        if duty_cycle_remaining < 1 {
-            duty_cycle_remaining = 2;
-        } else if duty_cycle_remaining > 99 {
-            duty_cycle_remaining = 98;
-        }
-        timer.start(duty_cycle_remaining as u32 * DUTY_CYCLE_SCALING * 20);
+    /*
+    rprintln!("states Per, R, G, B: {} {} {} {}", frame_element.period,
+        frame_element.rstate,
+        frame_element.gstate,
+        frame_element.bstate
+        );
+    */
 
-        timer.reset_event();
-    });
+    // When frame element period is non-zero, set LEDs and update timer:
+    if frame_element.period > 0 {
+        RGB_DISPLAY_MTX.with_lock(|rgb_led| {
+            if frame_element.rstate > 0 {
+                rgb_led.red_led_on();
+            } else {
+                rgb_led.red_led_off();
+            }
+
+            if frame_element.gstate > 0 {
+                rgb_led.grn_led_on();
+            } else {
+                rgb_led.grn_led_off();
+            }
+
+            if frame_element.bstate > 0 {
+                rgb_led.blu_led_on();
+            } else {
+                rgb_led.blu_led_off();
+            }
+        });
+
+        // Update timer period:
+        RGB_TIMER_MTX.with_lock(|timer| {
+            let mut period = frame_element.period as u32;
+            if period < 1000 {
+                period = 1000;
+            }
+
+            timer.start(frame_element.period as u32 * DUTY_CYCLE_SCALING * 20);
+            timer.reset_event();
+        });
+
+        felement += 1;
+        // Should not reach this state but seems to happen:
+        if felement > 3 {
+            felement = 0;
+        }
+
+    // When frame element period is zero that indicates we've reached end of
+    // present frame.  Reset frame element index value used with `match`:
+    } else if frame_element.period <= 0 {
+        felement = 0;
+    }
+
+    // rprintln!("storing felement {}", felement);
+    FRAME_ELEMENT.store(felement, Ordering::SeqCst);
 }
 
 /// --------------------------------------------------------------------
@@ -217,7 +188,7 @@ fn init() -> ! {
     let rgb_led = RgbDisplay::new(pins);
     RGB_DISPLAY_MTX.init(rgb_led);
 
-    // Set up timer for RGB pulse width modulation.
+    // Set up timer for RGB pulse width modulation
     let mut rgb_timer = hal::Timer::new(board.TIMER1);
     rgb_timer.disable_interrupt();
     rgb_timer.reset_event();
@@ -228,6 +199,12 @@ fn init() -> ! {
     // Set up the NVIC to handle interrupts:
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER1) };
     pac::NVIC::unpend(pac::Interrupt::TIMER1);
+
+    /*
+    // Instantiate a duty cycle timing structure
+    let mut dc_timing = DutyCycleTiming::new();
+    DUTY_CYCLE_TIMING.init(dc_timing);
+    */
 
     init_buttons(board.GPIOTE, board.buttons);
 
@@ -381,7 +358,6 @@ fn init() -> ! {
                 RGB_DISPLAY_MTX.with_lock(|rgb_led| {
                     rgb_led.calc_display_frame_periods([red1 as u8, grn1 as u8, blu1 as u8]);
                 });
-
             }
 
             count = COUNTER.fetch_add(0, AcqRel);
