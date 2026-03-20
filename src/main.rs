@@ -282,6 +282,8 @@ fn init() -> ! {
         let mut hsv_clamp_min: u8 = 1;
         let mut hsv_clamp_max: u8 = 1;
 
+        // Clamp our rotary encoder incremented/decremented color attribute
+        // values with limits from local rgbdisplay crate:
         RGB_DISPLAY_MTX.with_lock(|rgb_led| {
             hsv_clamp_min = rgb_led.hsv_clamp_min();
             hsv_clamp_max = rgb_led.hsv_clamp_max();

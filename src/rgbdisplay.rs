@@ -20,12 +20,40 @@ use embedded_hal::digital::OutputPin;
 const HSV_CLAMP_MIN: u8 = 1;
 const HSV_CLAMP_MAX: u8 = 99;
 
+pub struct FrameElement {
+    pub state: u8,
+    pub rstate: u8,
+    pub gstate: u8,
+    pub bstate: u8,
+    // element: [state, rstate, gstate, bstate];
+}
+
+pub(crate) struct DutyCycleTiming {
+    pub fe0: FrameElement,
+    pub fe1: FrameElement,
+    pub fe2: FrameElement,
+    pub fe3: FrameElement,
+}
+
+impl DutyCycleTiming {
+    fn new() -> Self {
+        // Declare frame elements, each a partial time of
+        // total frame display time:
+        let fe0 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe1 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe2 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
+        let fe3 = FrameElement {state: 0, rstate: 0, gstate: 0, bstate: 0};
+        Self { fe0, fe1, fe2, fe3 }
+    }
+}
+
 pub(crate) struct RgbDisplay {
     hsv_clamp_min: u8,
     hsv_clamp_max: u8,
     down_time: u8,
     // R, G, and B pins.
     rgb_pins: [gpio::Pin<Output<PushPull>>; 3],
+    duty_cycle_timing: DutyCycleTiming,
 }
 
 impl RgbDisplay {
@@ -37,12 +65,14 @@ impl RgbDisplay {
         let down_time = 1u8;
         // RGB pins
         let rgb_pins = pins;
-
+        // Struct to hold duty cycle timing values for timer and present frame
+        let duty_cycle_timing = DutyCycleTiming::new();
         Self {
             hsv_clamp_min,
             hsv_clamp_max,
             down_time,
             rgb_pins,
+            duty_cycle_timing,
         }
     }
 
