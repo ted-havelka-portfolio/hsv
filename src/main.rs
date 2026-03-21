@@ -58,7 +58,7 @@ const DEV_RGB_TIME: u32 = 500 * 1_000_000 / 1000;
 const PULSE_DIVIDER: i32 = 4;
 
 // const DUTY_CYCLE_SCALING: u32 = 2;
-const DUTY_CYCLE_SCALING: u32 = 20;
+const DUTY_CYCLE_SCALING: u32 = 2;
 
 // ---------------------------------------------------------------------
 // - SECTION - Muteces and atomics

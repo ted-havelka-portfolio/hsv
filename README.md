@@ -65,6 +65,12 @@ Functions completed so far include:
    its own module
 * Make use of rotary encoder push button as a "zero all" feature
 
+2026-03-20 Note: branch `pwm-calc-improvement` implements a better duty cycle
+calculation, factored into the RgbDisplay crate.  The timer1 interrupt is
+updateing and simplified to make use of this.  Mid-way color glitches are no
+longer showing across Hue adjustments.  There is however some condition
+causing a panic when Hue reaches its default upper clamped bound of 99.
+
 ## Most challenging
 
 The most difficult element of HSV application development came in the effort to
